@@ -3,10 +3,40 @@ set -e
 
 cd $(dirname $0)/..
 
-if [ ! -e bin/go-machine-service ]; then
+source ./scripts/version
+
+if [ ! -e bin/host-provisioner ]; then
     ./scripts/build
 fi
 
 mkdir -p dist/artifacts
-cd bin/
-tar cvJf ../dist/artifacts/go-machine-service.tar.xz .
+artifact="dist/artifacts/host-provisioner-${VERSION#v}-linux-amd64.tar.xz"
+rm -f "$artifact"
+package_root="dist/package-root/host-provisioner-${VERSION#v}-linux-amd64"
+rm -rf dist/package-root
+mkdir -p "${package_root}/licenses"
+install -m 0755 bin/host-provisioner "${package_root}/host-provisioner"
+install -m 0644 LICENSE ORIGIN.md "${package_root}/"
+
+while IFS= read -r legal_file; do
+    destination="${package_root}/licenses/${legal_file#vendor/}"
+    mkdir -p "$(dirname "${destination}")"
+    install -m 0644 "${legal_file}" "${destination}"
+done < <(find vendor -type f \( \
+    -name 'LICENSE' -o -name 'LICENSE.*' -o \
+    -name 'NOTICE' -o -name 'NOTICE.*' -o \
+    -name 'COPYING' -o -name 'COPYING.*' -o \
+    -name 'AUTHORS' -o -name 'AUTHORS.*' \
+\) | LC_ALL=C sort)
+
+XZ_OPT=-9e tar \
+    --sort=name \
+    --mtime="@${SOURCE_DATE_EPOCH:-0}" \
+    --owner=0 \
+    --group=0 \
+    --numeric-owner \
+    -C dist/package-root \
+    -cJf "$artifact" \
+    "$(basename "${package_root}")"
+
+printf '%s\n' "$artifact"

@@ -2,27 +2,30 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 var lock = sync.Mutex{}
 
 const (
-	machineDirEnvKey  = "MACHINE_STORAGE_PATH="
-	machineCmd        = "docker-machine"
-	defaultCattleHome = "/var/lib/cattle"
+	machineDirEnvKey    = "MACHINE_STORAGE_PATH="
+	machineCmd          = "docker-machine"
+	defaultPlatformHome = "/var/lib/pasturestack"
 )
 
 type machineInfo struct {
@@ -38,19 +41,123 @@ func PingNoOp(event *events.Event, apiClient *client.RancherClient) error {
 }
 
 func buildBaseMachineDir(m *client.Machine) (string, error) {
-	machineDir := filepath.Join(getWorkDir(), "machines", m.ExternalId)
-	return machineDir, os.MkdirAll(machineDir, 0740)
+	identifier, err := machineDirectoryIdentifier(m)
+	if err != nil {
+		return "", err
+	}
+
+	workDir, err := trustedWorkDir()
+	if err != nil {
+		return "", err
+	}
+	machinesDir := filepath.Join(workDir, "machines")
+	if err := os.MkdirAll(machinesDir, 0740); err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(machinesDir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	if err := root.MkdirAll(identifier, 0740); err != nil {
+		return "", err
+	}
+	return filepath.Join(machinesDir, identifier), nil
 }
 
 func getWorkDir() string {
 	workDir := os.Getenv("MACHINE_WORK_DIR")
 	if workDir == "" {
+		workDir = os.Getenv("PASTURESTACK_HOME")
+	}
+	if workDir == "" {
 		workDir = os.Getenv("CATTLE_HOME")
 	}
 	if workDir == "" {
-		workDir = defaultCattleHome
+		workDir = defaultPlatformHome
 	}
 	return filepath.Join(workDir, "machine")
+}
+
+// trustedWorkDir resolves the operator-controlled storage root before any
+// control-plane identifier is appended to it. The root may be configured as
+// either an absolute path or a relative path, but is always made absolute and
+// cleaned at this trust boundary.
+func trustedWorkDir() (string, error) {
+	workDir, err := filepath.Abs(getWorkDir())
+	if err != nil {
+		return "", fmt.Errorf("resolve machine work directory: %w", err)
+	}
+	workDir = filepath.Clean(workDir)
+	if strings.IndexByte(workDir, 0) >= 0 || !strings.HasPrefix(workDir, string(filepath.Separator)) || !filepath.IsAbs(workDir) {
+		return "", fmt.Errorf("machine work directory is not an absolute storage path")
+	}
+	volumeRoot := filepath.Clean(filepath.VolumeName(workDir) + string(filepath.Separator))
+	if workDir == volumeRoot {
+		return "", fmt.Errorf("machine work directory must not be a volume root")
+	}
+	return workDir, nil
+}
+
+// machinePathIdentifier accepts the historical opaque identifiers emitted by
+// the control plane when they are already safe path segments. For unusual but
+// legitimate legacy identifiers, it derives a stable, non-reversible key
+// instead of rejecting the machine or allowing path traversal.
+func machinePathIdentifier(externalID string) (string, error) {
+	if strings.IndexByte(externalID, 0) >= 0 {
+		return "", fmt.Errorf("machine external identifier contains a NUL byte")
+	}
+	hasControlCharacter := false
+	for _, character := range externalID {
+		if unicode.IsControl(character) {
+			hasControlCharacter = true
+			break
+		}
+	}
+	if len(externalID) <= 255 && !hasControlCharacter && filepath.IsLocal(externalID) && filepath.Base(externalID) == externalID &&
+		externalID != "." && !strings.ContainsAny(externalID, `/\`) {
+		return externalID, nil
+	}
+	if externalID == "" {
+		return "", fmt.Errorf("machine external identifier is empty")
+	}
+	digest := sha256.Sum256([]byte(externalID))
+	return fmt.Sprintf("legacy-%x", digest[:16]), nil
+}
+
+func machineDirectoryIdentifier(machine *client.Machine) (string, error) {
+	identifier := machine.ExternalId
+	if identifier == "" {
+		identifier = machine.Id
+	}
+	return machinePathIdentifier(identifier)
+}
+
+func machineStorageName(machine *client.Machine) (string, error) {
+	return machineCommandName(machine)
+}
+
+func machineCommandName(machine *client.Machine) (string, error) {
+	name := machine.Name
+	if name == "" {
+		name = machine.ExternalId
+	}
+	if name == "" {
+		name = machine.Id
+	}
+	if name == "" {
+		return "", fmt.Errorf("machine name is empty")
+	}
+	if len(name) > 255 || name == "." || name == ".." || strings.HasPrefix(name, "-") ||
+		!filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("machine name %q is not a safe local name", name)
+	}
+	for _, character := range name {
+		if unicode.IsControl(character) {
+			return "", fmt.Errorf("machine name contains a control character")
+		}
+	}
+	return name, nil
 }
 
 var publishReply = func(reply *client.Publish, apiClient *client.RancherClient) error {
@@ -67,7 +174,7 @@ var publishTransitioningReply = func(msg string, event *events.Event, apiClient 
 }
 
 func republishTransitioningReply(publishChan <-chan string, event *events.Event, apiClient *client.RancherClient) {
-	// We only do this because there is a current issue within Cattle that if a transition message
+	// Preserve this retry because the compatibility control plane can drop a transition message
 	// has not been updated for a period of time, it can no longer be updated.  For now, to deal with this
 	// we will simply republish transitioning messages until the next one is added.
 	// Because this ticker is going to republish every X seconds, it's will most likely republish a message sooner
@@ -318,6 +425,11 @@ func preEvent(event *events.Event, apiClient *client.RancherClient) (*client.Mac
 	if machine == nil {
 		return nil, nil, notAMachineReply(event, apiClient)
 	}
+	machineName, err := machineCommandName(machine)
+	if err != nil {
+		return nil, nil, err
+	}
+	machine.Name = machineName
 
 	machineDir, err := buildBaseMachineDir(machine)
 	if err != nil {
@@ -335,6 +447,9 @@ func preEvent(event *events.Event, apiClient *client.RancherClient) (*client.Mac
 			return nil, nil, err
 		}
 		mInfo.fullMachinePath = path.Join(machineDir, machineDir)
+		if err := os.MkdirAll(mInfo.fullMachinePath, 0740); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	err = restoreMachineDir(machine, mInfo.fullMachinePath)

@@ -4,19 +4,34 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/gorilla/websocket"
 	"github.com/rancher/go-rancher/v2"
 )
 
-const MaxWait = time.Duration(time.Second * 10)
+var MaxWait = maxTransitionWait()
+
+func maxTransitionWait() time.Duration {
+	value := os.Getenv("EVENT_SUBSCRIBER_MAX_WAIT_SECONDS")
+	if value == "" {
+		return 10 * time.Second
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return 10 * time.Second
+	}
+
+	return time.Duration(seconds) * time.Second
+}
 
 // EventHandler Defines the function "interface" that handlers must conform to.
 type EventHandler func(*Event, *client.RancherClient) error

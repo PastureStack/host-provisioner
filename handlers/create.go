@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/host-provisioner/handlers/providers"
 	"github.com/rancher/event-subscriber/events"
-	"github.com/rancher/go-machine-service/handlers/providers"
 	client "github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -40,7 +41,11 @@ func CreateMachine(event *events.Event, apiClient *client.RancherClient) error {
 	}
 	defer removeMachineDir(machineDirs.jailDir)
 
-	if _, err := os.Stat(createdStamp(machineDirs.fullMachinePath, machine)); !os.IsNotExist(err) {
+	stamp, err := createdStamp(machineDirs.fullMachinePath, machine)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
 		return publishReply(newReply(event), apiClient)
 	}
 
@@ -85,7 +90,7 @@ func CreateMachine(event *events.Event, apiClient *client.RancherClient) error {
 		select {
 		case errString := <-errChan:
 			if errString != "" {
-				return fmt.Errorf(errString)
+				return errors.New(errString)
 			}
 		case <-time.After(10 * time.Second):
 			log.Error("Waited 10 seconds to break after command.Wait().  Please review logProgress.")
@@ -263,12 +268,20 @@ func buildEngineOpts(name string, values []string) []string {
 	return opts
 }
 
-func createdStamp(base string, machine *client.Machine) string {
-	return filepath.Join(base, "machines", machine.Name, createdFile)
+func createdStamp(base string, machine *client.Machine) (string, error) {
+	name, err := machineStorageName(machine)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "machines", name, createdFile), nil
 }
 
 func touchCreatedStamp(base string, machine *client.Machine) error {
-	f, err := os.Create(createdStamp(base, machine))
+	stamp, err := createdStamp(base, machine)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(stamp)
 	if err != nil {
 		return err
 	}

@@ -1,5 +1,9 @@
 #!/bin/bash
-godep go clean; godep go build
+set -e
 
-# Asssumes you have a default service account type setup
-CATTLE_AGENT_LOCALHOST_REPLACE="10.0.3.2" CATTLE_ACCESS_KEY="service" CATTLE_SECRET_KEY="servicepass" CATTLE_URL=http://localhost:8080/v1 ./go-machine-service -loglevel=debug
+godep go clean
+godep go build
+
+: "${PLATFORM_ACCESS_KEY:?Set PLATFORM_ACCESS_KEY for a local test account}"
+: "${PLATFORM_SECRET_KEY:?Set PLATFORM_SECRET_KEY for a local test account}"
+PLATFORM_URL=${PLATFORM_URL:-http://localhost:8080/v1} ./host-provisioner -loglevel=debug

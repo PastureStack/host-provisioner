@@ -1,6 +1,6 @@
 package logging
 
-import "github.com/Sirupsen/logrus"
+import "github.com/sirupsen/logrus"
 
 var log = logrus.WithFields(logrus.Fields{
 	"service": "gms",

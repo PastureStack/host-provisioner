@@ -7,7 +7,7 @@ import (
 
 	"errors"
 
-	"github.com/rancher/go-machine-service/logging"
+	"github.com/PastureStack/host-provisioner/logging"
 	"github.com/rancher/go-rancher/v2"
 )
 
@@ -60,10 +60,10 @@ func (*AzureHandler) HandleError(msg string) string {
 
 func saveDataToFile(filename, data, machineDir string) (string, error) {
 	f, err := os.Create(filepath.Join(machineDir, filename))
-	defer f.Close()
 	if err != nil {
 		return "", err
 	}
+	defer f.Close()
 
 	var byteData []byte
 	byteData, err = b64.StdEncoding.DecodeString(data)

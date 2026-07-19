@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fsouza/go-dockerclient/external/github.com/Sirupsen/logrus"
+	"github.com/fsouza/go-dockerclient/external/github.com/sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient/external/github.com/docker/docker/pkg/idtools"
 	"github.com/fsouza/go-dockerclient/external/github.com/docker/docker/pkg/pools"
 	"github.com/fsouza/go-dockerclient/external/github.com/docker/docker/pkg/system"

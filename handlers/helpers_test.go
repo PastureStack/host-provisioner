@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"github.com/rancher/go-machine-service/handlers/providers"
+	"github.com/PastureStack/host-provisioner/handlers/providers"
 	"github.com/rancher/go-rancher/v2"
 	"testing"
 )

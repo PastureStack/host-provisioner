@@ -15,9 +15,9 @@ var (
 )
 
 func getClient() (*client.RancherClient, error) {
-	apiURL := os.Getenv("CATTLE_URL")
-	accessKey := os.Getenv("CATTLE_ACCESS_KEY")
-	secretKey := os.Getenv("CATTLE_SECRET_KEY")
+	apiURL := preferredEnvironment("PLATFORM_URL", "CATTLE_URL")
+	accessKey := preferredEnvironment("PLATFORM_ACCESS_KEY", "CATTLE_ACCESS_KEY")
+	secretKey := preferredEnvironment("PLATFORM_SECRET_KEY", "CATTLE_SECRET_KEY")
 
 	return client.NewRancherClient(&client.ClientOpts{
 		Url:       apiURL,
@@ -25,6 +25,13 @@ func getClient() (*client.RancherClient, error) {
 		SecretKey: secretKey,
 		Timeout:   time.Second * 60,
 	})
+}
+
+func preferredEnvironment(preferred, legacy string) string {
+	if value := os.Getenv(preferred); value != "" {
+		return value
+	}
+	return os.Getenv(legacy)
 }
 
 func waitSchema(schema client.DynamicSchema, apiClient *client.RancherClient) error {

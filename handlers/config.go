@@ -12,15 +12,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/rancher/go-machine-service/logging"
+	"github.com/PastureStack/host-provisioner/logging"
 	client "github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 var logger = logging.Logger()
 
 func restoreMachineDir(machine *client.Machine, baseDir string) error {
-	machineBaseDir := filepath.Dir(baseDir)
+	machineBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return fmt.Errorf("resolve machine config directory: %w", err)
+	}
 	if err := os.MkdirAll(machineBaseDir, 0740); err != nil {
 		return fmt.Errorf("Error reinitializing config (MkdirAll). Config Dir: %v. Error: %v", machineBaseDir, err)
 	}
@@ -38,38 +41,80 @@ func restoreMachineDir(machine *client.Machine, baseDir string) error {
 	if err != nil {
 		return err
 	}
+	defer gzipReader.Close()
 	tarReader := tar.NewReader(gzipReader)
+	root, err := os.OpenRoot(machineBaseDir)
+	if err != nil {
+		return fmt.Errorf("open machine config root: %w", err)
+	}
+	defer root.Close()
+	archiveRoot := filepath.Base(machineBaseDir)
+	sawArchiveRoot := false
 
 	for {
 		header, err := tarReader.Next()
 		if err != nil {
 			if err == io.EOF {
+				if !sawArchiveRoot {
+					return fmt.Errorf("archive is missing machine root %q", archiveRoot)
+				}
 				return nil
 			}
 			return fmt.Errorf("Error reinitializing config (tarRead.Next). Config Dir: %v. Error: %v", machineBaseDir, err)
 		}
 
-		filename := header.Name
+		if header.Name == "" || filepath.IsAbs(header.Name) || strings.Contains(header.Name, "..") || strings.Contains(header.Name, `\`) {
+			return fmt.Errorf("unsafe archive entry %q", header.Name)
+		}
+		if !filepath.IsLocal(header.Name) {
+			return fmt.Errorf("unsafe archive entry %q", header.Name)
+		}
+		filename := filepath.Clean(header.Name)
+		if filename != archiveRoot && !strings.HasPrefix(filename, archiveRoot+string(filepath.Separator)) {
+			return fmt.Errorf("archive entry %q does not belong to machine %q", header.Name, archiveRoot)
+		}
+		sawArchiveRoot = true
+		filename = strings.TrimPrefix(filename, archiveRoot)
+		filename = strings.TrimPrefix(filename, string(filepath.Separator))
+		if filename == "" {
+			if !header.FileInfo().IsDir() {
+				return fmt.Errorf("archive root %q is not a directory", header.Name)
+			}
+			continue
+		}
 		filePath := filepath.Join(machineBaseDir, filename)
 		logger.Infof("Extracting %v", filePath)
 
 		info := header.FileInfo()
+		mode := info.Mode()
+		if mode&os.ModeType != 0 && !mode.IsDir() {
+			return fmt.Errorf("unsupported archive entry type for %q", header.Name)
+		}
 		if info.IsDir() {
-			err = os.MkdirAll(filePath, os.FileMode(header.Mode))
+			err = root.MkdirAll(filename, os.FileMode(header.Mode)&0777)
 			if err != nil {
 				return fmt.Errorf("Error reinitializing config (Mkdirall). Config Dir: %v. Dir: %v. Error: %v", machineBaseDir, info.Name(), err)
 			}
 			continue
 		}
 
-		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
+		parent := filepath.Dir(filename)
+		if parent != "." {
+			if err := root.MkdirAll(parent, 0740); err != nil {
+				return fmt.Errorf("create archive parent for %q: %w", header.Name, err)
+			}
+		}
+		file, err := root.OpenFile(filename, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
 		if err != nil {
 			return fmt.Errorf("Error reinitializing config (OpenFile). Config Dir: %v. File: %v. Error: %v", machineBaseDir, info.Name(), err)
 		}
-		defer file.Close()
 		_, err = io.Copy(file, tarReader)
+		closeErr := file.Close()
 		if err != nil {
 			return fmt.Errorf("Error reinitializing config (Copy). Config Dir: %v. File: %v. Error: %v", machineBaseDir, info.Name(), err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("Error reinitializing config (Close). Config Dir: %v. File: %v. Error: %v", machineBaseDir, info.Name(), closeErr)
 		}
 	}
 }
@@ -80,8 +125,22 @@ func createExtractedConfig(baseDir string, machine *client.Machine) (string, err
 	}).Info("Creating and uploading extracted machine config")
 
 	// create the tar.gz file
-	destFile := filepath.Join(baseDir, machine.Name+".tar.gz")
-	tarfile, err := os.Create(destFile)
+	archiveName, err := machineStorageName(machine)
+	if err != nil {
+		return "", err
+	}
+	baseDir, err = filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve machine config source: %w", err)
+	}
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	destName := archiveName + ".tar.gz"
+	destFile := filepath.Join(baseDir, destName)
+	tarfile, err := root.OpenFile(destName, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return "", err
 	}
@@ -112,6 +171,12 @@ func addDirToArchive(source string, tarfileWriter *tar.Writer) error {
 				strings.HasSuffix(info.Name(), ".vmdk") ||
 				strings.HasSuffix(info.Name(), ".img") {
 				return nil
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("refusing to archive symbolic link %q", path)
+			}
+			if !info.Mode().IsRegular() && !info.IsDir() {
+				return fmt.Errorf("refusing to archive special file %q", path)
 			}
 
 			header, err := tar.FileInfoHeader(info, info.Name())
@@ -177,5 +242,24 @@ func saveMachineConfig(machineDir string, machine *client.Machine, apiClient *cl
 }
 
 func removeMachineDir(machineDir string) {
-	os.RemoveAll(machineDir)
+	workDir, err := trustedWorkDir()
+	if err != nil {
+		logger.WithError(err).Warn("Refusing to remove unresolved machine directory")
+		return
+	}
+	machinesDir := filepath.Join(workDir, "machines")
+	rel, err := filepath.Rel(machinesDir, machineDir)
+	if err != nil || !filepath.IsLocal(rel) || rel == "." {
+		logger.WithField("machineDir", machineDir).Warn("Refusing to remove machine directory outside storage root")
+		return
+	}
+	root, err := os.OpenRoot(machinesDir)
+	if err != nil {
+		logger.WithError(err).Warn("Refusing to remove machine directory without a trusted root")
+		return
+	}
+	defer root.Close()
+	if err := root.RemoveAll(rel); err != nil {
+		logger.WithError(err).Warn("Unable to remove machine directory")
+	}
 }

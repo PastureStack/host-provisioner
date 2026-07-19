@@ -1,0 +1,78 @@
+name: Validate Host Provisioner
+
+on:
+  push:
+    branches:
+      - 'verification/host-provisioner-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-provisioner-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify candidate shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-list --count 22d7baca609c18589f08225a97bf8c5e00109204..HEAD)" -eq 1
+          grep -Fq 'VERSION_OVERRIDE: v0.39.5' .github/workflows/validate.yml
+
+      - name: Run complete tests, validation, and package
+        env:
+          VERSION_OVERRIDE: v0.39.5
+          SOURCE_DATE_EPOCH: '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          make ci
+          asset='dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz'
+          test -s "$asset"
+          package_dir='host-provisioner-0.39.5-linux-amd64'
+          tar -tJf "$asset" | grep -Fx "${package_dir}/host-provisioner"
+          tar -tJf "$asset" | grep -Fx "${package_dir}/LICENSE"
+          tar -tJf "$asset" | grep -Fx "${package_dir}/ORIGIN.md"
+          test "$(tar -tJf "$asset" | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")" -eq 19
+          mkdir -p evidence extracted
+          tar -xJf "$asset" -C extracted
+          test -x "extracted/${package_dir}/host-provisioner"
+          test "$("extracted/${package_dir}/host-provisioner" -v)" = $'host-provisioner\t gitcommit=v0.39.5'
+          sha256sum "$asset" "extracted/${package_dir}/host-provisioner" > evidence/product-artifacts.sha256
+
+      - name: Verify reproducible artifact
+        env:
+          VERSION_OVERRIDE: v0.39.5
+          SOURCE_DATE_EPOCH: '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz /tmp/first.tar.xz
+          rm -rf bin dist
+          make ci
+          cmp /tmp/first.tar.xz dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz
+          printf 'HOST_PROVISIONER_VALIDATION_OK source=%s version=%s\n' "$GITHUB_SHA" "$VERSION_OVERRIDE"
+
+      - name: Retain reviewed release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: host-provisioner-0.39.5
+          path: |
+            dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz
+            evidence/product-artifacts.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

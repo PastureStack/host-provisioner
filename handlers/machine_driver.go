@@ -3,10 +3,10 @@ package handlers
 import (
 	"fmt"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/PastureStack/host-provisioner/dynamic"
 	"github.com/rancher/event-subscriber/events"
-	"github.com/rancher/go-machine-service/dynamic"
 	"github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 func DeactivateDriver(event *events.Event, apiClient *client.RancherClient) error {

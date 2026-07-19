@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/PastureStack/host-provisioner/dynamic"
+	"github.com/PastureStack/host-provisioner/handlers"
+	"github.com/PastureStack/host-provisioner/logging"
 	"github.com/rancher/event-subscriber/events"
-	"github.com/rancher/go-machine-service/dynamic"
-	"github.com/rancher/go-machine-service/handlers"
-	"github.com/rancher/go-machine-service/logging"
 )
 
 var (
@@ -16,15 +16,16 @@ var (
 )
 
 var logger = logging.Logger()
+var operatorLocale = "en-US"
 
 func main() {
 	processCmdLineFlags()
 
-	logger.WithField("gitcommit", GITCOMMIT).Info("Starting go-machine-service...")
+	logger.WithField("gitcommit", GITCOMMIT).Info(operatorMessage(operatorLocale, "start"))
 
-	apiURL := os.Getenv("CATTLE_URL")
-	accessKey := os.Getenv("CATTLE_ACCESS_KEY")
-	secretKey := os.Getenv("CATTLE_SECRET_KEY")
+	apiURL := environmentValue("PLATFORM_URL", "CATTLE_URL")
+	accessKey := environmentValue("PLATFORM_ACCESS_KEY", "CATTLE_ACCESS_KEY")
+	secretKey := environmentValue("PLATFORM_SECRET_KEY", "CATTLE_SECRET_KEY")
 
 	ready := make(chan bool, 2)
 	done := make(chan error)
@@ -40,7 +41,7 @@ func main() {
 			"ping":                     handlers.PingNoOp,
 		}
 
-		router, err := events.NewEventRouter("goMachineService-machine", 2000, apiURL, accessKey, secretKey,
+		router, err := events.NewEventRouter("hostProvisioner-machine", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "machineDriver", 250, events.DefaultPingConfig)
 		if err == nil {
 			err = router.Start(ready)
@@ -56,7 +57,7 @@ func main() {
 			"ping":                   handlers.PingNoOp,
 		}
 
-		router, err := events.NewEventRouter("goMachineService", 2000, apiURL, accessKey, secretKey,
+		router, err := events.NewEventRouter("hostProvisioner", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "physicalhost", 250, events.DefaultPingConfig)
 		if err == nil {
 			err = router.Start(ready)
@@ -70,7 +71,7 @@ func main() {
 			"ping": handlers.PingNoOp,
 		}
 
-		router, err := events.NewEventRouter("goMachineService-agent", 2000, apiURL, accessKey, secretKey,
+		router, err := events.NewEventRouter("hostProvisioner-agent", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "agent", 5, events.DefaultPingConfig)
 		if err == nil {
 			err = router.Start(ready)
@@ -93,18 +94,44 @@ func main() {
 
 	err := <-done
 	if err == nil {
-		logger.Infof("Exiting go-machine-service")
+		logger.Info(operatorMessage(operatorLocale, "exit"))
 	} else {
-		logger.Fatalf("Exiting go-machine-service: %v", err)
+		logger.Fatalf("Exiting host-provisioner: %v", err)
 	}
 }
 
 func processCmdLineFlags() {
 	// Define command line flags
-	version := flag.Bool("v", false, "read the version of the go-machine-service")
+	version := flag.Bool("v", false, "read the version of the host-provisioner")
+	flag.StringVar(&operatorLocale, "locale", localeFromEnvironment(), "operator message locale: en-US or zh-TW")
 	flag.Parse()
+	if operatorLocale != "en-US" && operatorLocale != "zh-TW" {
+		logger.Fatalf("unsupported locale %q; use en-US or zh-TW", operatorLocale)
+	}
 	if *version {
-		fmt.Printf("go-machine-service\t gitcommit=%s\n", GITCOMMIT)
+		fmt.Printf("host-provisioner\t gitcommit=%s\n", GITCOMMIT)
 		os.Exit(0)
 	}
+}
+
+func environmentValue(preferred, legacy string) string {
+	if value := os.Getenv(preferred); value != "" {
+		return value
+	}
+	return os.Getenv(legacy)
+}
+
+func localeFromEnvironment() string {
+	if locale := os.Getenv("PASTURESTACK_LOCALE"); locale != "" {
+		return locale
+	}
+	return "en-US"
+}
+
+func operatorMessage(locale, key string) string {
+	messages := map[string]map[string]string{
+		"en-US": {"start": "Starting PastureStack host provisioner", "exit": "PastureStack host provisioner stopped"},
+		"zh-TW": {"start": "正在啟動 PastureStack 主機佈建服務", "exit": "PastureStack 主機佈建服務已停止"},
+	}
+	return messages[locale][key]
 }

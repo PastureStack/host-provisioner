@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/distribution/reference"
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 const (
-	bootstrapContName = "rancher-agent-bootstrap"
+	bootstrapContName = "pasturestack-node-agent-bootstrap"
 	maxWait           = time.Duration(time.Second * 10)
 	parseMessage      = "Failed to parse config: [%v]"
 	bootStrappedFile  = "bootstrapped"
@@ -41,7 +41,11 @@ func ActivateMachine(event *events.Event, apiClient *client.RancherClient) (err 
 	defer removeMachineDir(machineDirs.jailDir)
 
 	// If the resource has the bootstrapped file, then it has been bootstrapped.
-	if _, err := os.Stat(bootstrappedStamp(machineDirs.fullMachinePath, machine)); err == nil {
+	stamp, err := bootstrappedStamp(machineDirs.fullMachinePath, machine)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(stamp); err == nil {
 		if err := saveMachineConfig(machineDirs.fullMachinePath, machine, apiClient); err != nil {
 			return err
 		}
@@ -53,7 +57,7 @@ func ActivateMachine(event *events.Event, apiClient *client.RancherClient) (err 
 	defer close(publishChan)
 	go republishTransitioningReply(publishChan, event, apiClient)
 
-	publishChan <- "Installing Rancher agent"
+	publishChan <- "Installing node agent"
 
 	registrationURL, imageRepo, imageTag, fingerprint, err := getRegistrationURLAndImage(machine.AccountId, apiClient)
 	if err != nil {
@@ -108,8 +112,8 @@ func ActivateMachine(event *events.Event, apiClient *client.RancherClient) (err 
 		logger.WithFields(logrus.Fields{
 			"resourceId": event.ResourceID,
 			"machineId":  machine.Id,
-		}).Error("Failed to find rancher-agent container")
-		return errors.New("Failed to find rancher-agent container")
+		}).Error("Failed to find the legacy node-agent container")
+		return errors.New("Failed to find the legacy node-agent container")
 	}
 
 	go func() {
@@ -136,7 +140,7 @@ func ActivateMachine(event *events.Event, apiClient *client.RancherClient) (err 
 		"resourceId":        event.ResourceID,
 		"machineExternalId": machine.ExternalId,
 		"containerId":       container.ID,
-	}).Info("Rancher-agent for machine started")
+	}).Info("Node agent for machine started")
 
 	if err := touchBootstrappedStamp(machineDirs.fullMachinePath, machine); err != nil {
 		return err
@@ -449,12 +453,20 @@ func parseImage(image string) (string, string, error) {
 	return repo, tag, nil
 }
 
-func bootstrappedStamp(base string, machine *client.Machine) string {
-	return filepath.Join(base, "machines", machine.Name, bootStrappedFile)
+func bootstrappedStamp(base string, machine *client.Machine) (string, error) {
+	name, err := machineStorageName(machine)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "machines", name, bootStrappedFile), nil
 }
 
 func touchBootstrappedStamp(base string, machine *client.Machine) error {
-	f, err := os.Create(createdStamp(base, machine))
+	stamp, err := bootstrappedStamp(base, machine)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(stamp)
 	if err != nil {
 		return err
 	}

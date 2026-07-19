@@ -3,10 +3,10 @@ package handlers
 import (
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/patrickmn/go-cache"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
+	"github.com/sirupsen/logrus"
 )
 
 var removeCache = cache.New(5*time.Minute, 30*time.Second)

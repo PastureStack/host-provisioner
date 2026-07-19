@@ -1,9 +1,10 @@
 package dynamic
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
-	"crypto/md5"
-	"crypto/sha1"
+	"compress/gzip"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -14,16 +15,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/PastureStack/host-provisioner/logging"
 	"github.com/pkg/errors"
-	"github.com/rancher/go-machine-service/logging"
 )
 
 var logger = logging.Logger()
+
+const maxDriverDownloadSize int64 = 512 << 20
 
 type Driver struct {
 	builtin bool
@@ -62,20 +65,35 @@ func (d *Driver) FriendlyName() string {
 }
 
 func (d *Driver) Remove() error {
-	cacheFilePrefix := d.cacheFile()
-	content, err := ioutil.ReadFile(cacheFilePrefix)
-	if os.IsNotExist(err) {
-		return nil
-	}
-
+	cacheRoot, err := openDriverCacheRoot()
 	if err != nil {
 		return err
 	}
+	defer cacheRoot.Close()
 
-	dest := path.Join(binDir(), string(content))
-	os.Remove(dest)
-	os.Remove(cacheFilePrefix + "-" + string(content))
-	os.Remove(cacheFilePrefix)
+	key := d.cacheKey()
+	driverName, err := isInstalled(cacheRoot, key)
+	if err != nil || driverName == "" {
+		return err
+	}
+	binRoot, err := openDriverBinRoot()
+	if err != nil {
+		return err
+	}
+	defer binRoot.Close()
+
+	if err := removeIfPresent(binRoot, driverName); err != nil {
+		return err
+	}
+	if err := removeIfPresent(cacheRoot, key+"-"+driverName); err != nil {
+		return err
+	}
+	if err := removeIfPresent(cacheRoot, key); err != nil {
+		return err
+	}
+	if err := removeIfPresent(cacheRoot, key+".error"); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -89,30 +107,48 @@ func (d *Driver) Stage() error {
 }
 
 func (d *Driver) setError(err error) error {
-	errFile := d.cacheFile() + ".error"
-
-	if err != nil {
-		os.MkdirAll(path.Dir(errFile), 0700)
-		ioutil.WriteFile(errFile, []byte(err.Error()), 0600)
+	if err == nil {
+		return nil
+	}
+	cacheRoot, rootErr := openDriverCacheRoot()
+	if rootErr != nil {
+		return errors.Wrap(rootErr, err.Error())
+	}
+	defer cacheRoot.Close()
+	if writeErr := cacheRoot.WriteFile(d.cacheKey()+".error", []byte(err.Error()), 0600); writeErr != nil {
+		return errors.Wrap(writeErr, err.Error())
 	}
 	return err
 }
 
 func (d *Driver) getError() error {
-	errFile := d.cacheFile() + ".error"
-
-	if content, err := ioutil.ReadFile(errFile); err == nil {
-		logger.Errorf("Returning previous error: %s", content)
-		d.ClearError()
-		return errors.New(string(content))
+	cacheRoot, err := openDriverCacheRoot()
+	if err != nil {
+		return err
+	}
+	defer cacheRoot.Close()
+	errFile := d.cacheKey() + ".error"
+	if content, err := cacheRoot.ReadFile(errFile); err == nil {
+		logger.Error("Returning previous machine-driver error")
+		removeIfPresent(cacheRoot, errFile)
+		return errors.New(safeErrorMessage(string(content)))
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
 	return nil
 }
 
 func (d *Driver) ClearError() {
-	errFile := d.cacheFile() + ".error"
-	os.Remove(errFile)
+	cacheRoot, err := openDriverCacheRoot()
+	if err != nil {
+		logger.Errorf("Failed to open driver cache: %v", err)
+		return
+	}
+	defer cacheRoot.Close()
+	if err := removeIfPresent(cacheRoot, d.cacheKey()+".error"); err != nil {
+		logger.Errorf("Failed to clear driver error: %v", err)
+	}
 }
 
 func (d *Driver) stage() error {
@@ -120,9 +156,14 @@ func (d *Driver) stage() error {
 		return nil
 	}
 
-	cacheFilePrefix := d.cacheFile()
+	cacheRoot, err := openDriverCacheRoot()
+	if err != nil {
+		return err
+	}
+	defer cacheRoot.Close()
+	key := d.cacheKey()
 
-	driverName, err := isInstalled(cacheFilePrefix)
+	driverName, err := isInstalled(cacheRoot, key)
 	if err != nil || driverName != "" {
 		d.name = driverName
 		return err
@@ -157,7 +198,7 @@ func (d *Driver) stage() error {
 		return err
 	}
 
-	driverName, err = d.copyBinary(cacheFilePrefix, tempFile.Name())
+	driverName, err = d.copyBinary(cacheRoot, key, tempFile.Name())
 	if err != nil {
 		return err
 	}
@@ -171,28 +212,51 @@ func (d *Driver) Install() error {
 		return nil
 	}
 
-	binaryPath := path.Join(binDir(), d.name)
-	tmpPath := binaryPath + "-tmp"
-	f, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	driverName, err := safeDriverName(d.name)
 	if err != nil {
-		return errors.Wrapf(err, "Couldn't open %v for writing", tmpPath)
+		return err
 	}
-	defer f.Close()
-
-	src, err := os.Open(d.srcBinName())
+	cacheRoot, err := openDriverCacheRoot()
 	if err != nil {
-		return errors.Wrapf(err, "Couldn't open %v for copying", d.srcBinName())
+		return err
+	}
+	defer cacheRoot.Close()
+	binRoot, err := openDriverBinRoot()
+	if err != nil {
+		return err
+	}
+	defer binRoot.Close()
+
+	tmpName := driverName + "-tmp-" + d.cacheKey()[:12]
+	removeIfPresent(binRoot, tmpName)
+	f, err := binRoot.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err != nil {
+		return errors.Wrapf(err, "Couldn't open temporary driver %v for writing", tmpName)
+	}
+	defer removeIfPresent(binRoot, tmpName)
+
+	srcName := d.cacheKey() + "-" + driverName
+	src, err := cacheRoot.Open(srcName)
+	if err != nil {
+		f.Close()
+		return errors.Wrapf(err, "Couldn't open cached driver %v for copying", driverName)
 	}
 	defer src.Close()
 
-	logger.Infof("Copying %v => %v", d.srcBinName(), tmpPath)
+	logger.Infof("Installing driver %v", driverName)
 	_, err = io.Copy(f, src)
 	if err != nil {
-		return errors.Wrapf(err, "Couldn't copy %v to %v", d.srcBinName(), tmpPath)
+		f.Close()
+		return errors.Wrapf(err, "Couldn't copy cached driver %v", driverName)
 	}
-
-	err = os.Rename(tmpPath, binaryPath)
-	return errors.Wrapf(err, "Couldn't copy driver %v to %v", d.Name(), binaryPath)
+	if err := f.Close(); err != nil {
+		return errors.Wrapf(err, "Couldn't close temporary driver %v", driverName)
+	}
+	if err := binRoot.Chmod(tmpName, 0755); err != nil {
+		return errors.Wrapf(err, "Couldn't mark driver %v executable", driverName)
+	}
+	err = binRoot.Rename(tmpName, driverName)
+	return errors.Wrapf(err, "Couldn't install driver %v", driverName)
 }
 
 func isElf(input string) bool {
@@ -210,87 +274,190 @@ func isElf(input string) bool {
 	return bytes.Compare(elf, []byte{0x7f, 0x45, 0x4c, 0x46}) == 0
 }
 
-func (d *Driver) copyBinary(cacheFile, input string) (string, error) {
-	temp, err := ioutil.TempDir("", "machine-driver-extract")
+func (d *Driver) copyBinary(cacheRoot *os.Root, cacheKey, input string) (string, error) {
+	if len(cacheKey) != sha256.Size*2 || strings.Trim(cacheKey, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("invalid driver cache key")
+	}
+
+	tempFile, err := ioutil.TempFile("", "machine-driver-binary")
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(temp)
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
 
-	file := ""
-	driverName := ""
-
+	var driverName string
 	if isElf(input) {
-		file = input
 		u, err := url.Parse(d.url)
 		if err != nil {
 			return "", err
 		}
-		driverName = strings.Split(path.Base(u.Path), "_")[0]
-		if !strings.HasPrefix(driverName, "docker-machine-driver-") {
-			return "", fmt.Errorf("Invalid URL %s, path should be of the format docker-machine-driver-*", d.url)
+		driverName, err = safeDriverName(strings.Split(path.Base(u.Path), "_")[0])
+		if err != nil {
+			return "", fmt.Errorf("invalid driver URL path: %w", err)
+		}
+		source, err := os.Open(input)
+		if err != nil {
+			return "", err
+		}
+		defer source.Close()
+		if err := copyWithLimit(tempFile, source); err != nil {
+			return "", err
 		}
 	} else {
-		if err := exec.Command("tar", "xvf", input, "-C", temp).Run(); err != nil {
-			if err := exec.Command("unzip", "-o", input, "-d", temp).Run(); err != nil {
-				return "", fmt.Errorf("Failed to extract")
-			}
+		driverName, err = copyDriverFromArchive(input, tempFile)
+		if err != nil {
+			return "", err
 		}
 	}
 
-	filepath.Walk(temp, filepath.WalkFunc(func(p string, info os.FileInfo, err error) error {
-		if info.IsDir() {
-			return nil
-		}
-
-		if strings.HasPrefix(path.Base(p), "docker-machine-driver-") {
-			file = p
-		}
-
-		return nil
-	}))
-
-	if file == "" {
-		return "", fmt.Errorf("Failed to find machine driver in archive. There must be a file of form docker-machine-driver*")
+	if err := tempFile.Sync(); err != nil {
+		return "", err
+	}
+	if _, err := tempFile.Seek(0, io.SeekStart); err != nil {
+		return "", err
 	}
 
-	if driverName == "" {
-		driverName = path.Base(file)
-	}
-	f, err := os.Open(file)
+	destName := cacheKey + "-" + driverName
+	removeIfPresent(cacheRoot, destName)
+	dest, err := cacheRoot.OpenFile(destName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0700)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-
-	if err := os.MkdirAll(path.Dir(cacheFile), 0755); err != nil {
+	if _, err := io.Copy(dest, tempFile); err != nil {
+		dest.Close()
+		removeIfPresent(cacheRoot, destName)
 		return "", err
 	}
-
-	dest, err := os.Create(cacheFile + "-" + driverName)
-	if err != nil {
+	if err := dest.Close(); err != nil {
+		removeIfPresent(cacheRoot, destName)
 		return "", err
 	}
-	defer dest.Close()
-
-	if _, err := io.Copy(dest, f); err != nil {
+	if err := cacheRoot.WriteFile(cacheKey, []byte(driverName), 0600); err != nil {
+		removeIfPresent(cacheRoot, destName)
 		return "", err
 	}
 
 	logger.Infof("Found driver %s", driverName)
-	return driverName, ioutil.WriteFile(cacheFile, []byte(driverName), 0644)
+	return driverName, nil
 }
 
-func (d *Driver) srcBinName() string {
-	return d.cacheFile() + "-" + d.name
-}
-
-func binDir() string {
-	dest := os.Getenv("GMS_BIN_DIR")
-	if dest != "" {
-		return dest
+func copyDriverFromArchive(input string, destination *os.File) (string, error) {
+	if archive, err := zip.OpenReader(input); err == nil {
+		defer archive.Close()
+		return copyDriverFromZip(archive.File, destination)
 	}
-	return "/usr/local/bin"
+
+	archive, err := os.Open(input)
+	if err != nil {
+		return "", err
+	}
+	defer archive.Close()
+	var reader io.Reader = archive
+	if gzipReader, gzipErr := gzip.NewReader(archive); gzipErr == nil {
+		defer gzipReader.Close()
+		reader = gzipReader
+	} else if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return copyDriverFromTar(tar.NewReader(reader), destination)
+}
+
+func copyDriverFromZip(files []*zip.File, destination *os.File) (string, error) {
+	found := ""
+	for _, file := range files {
+		entry, err := safeArchiveEntry(file.Name)
+		if err != nil {
+			return "", err
+		}
+		mode := file.Mode()
+		if mode.IsDir() {
+			continue
+		}
+		if !mode.IsRegular() {
+			return "", fmt.Errorf("driver archive entry %q is not a regular file", file.Name)
+		}
+		name, err := safeDriverName(filepath.Base(entry))
+		if err != nil {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("driver archive contains multiple driver binaries")
+		}
+		source, err := file.Open()
+		if err != nil {
+			return "", err
+		}
+		copyErr := copyWithLimit(destination, source)
+		closeErr := source.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		found = name
+	}
+	if found == "" {
+		return "", fmt.Errorf("driver archive contains no valid driver binary")
+	}
+	return found, nil
+}
+
+func copyDriverFromTar(reader *tar.Reader, destination *os.File) (string, error) {
+	found := ""
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("invalid driver archive: %w", err)
+		}
+		entry, err := safeArchiveEntry(header.Name)
+		if err != nil {
+			return "", err
+		}
+		if header.Typeflag == tar.TypeDir {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return "", fmt.Errorf("driver archive entry %q is not a regular file", header.Name)
+		}
+		name, err := safeDriverName(filepath.Base(entry))
+		if err != nil {
+			continue
+		}
+		if found != "" {
+			return "", fmt.Errorf("driver archive contains multiple driver binaries")
+		}
+		if err := copyWithLimit(destination, reader); err != nil {
+			return "", err
+		}
+		found = name
+	}
+	if found == "" {
+		return "", fmt.Errorf("driver archive contains no valid driver binary")
+	}
+	return found, nil
+}
+
+func safeArchiveEntry(name string) (string, error) {
+	if name == "" || filepath.IsAbs(name) || strings.Contains(name, `\`) || strings.Contains(name, "..") || !filepath.IsLocal(name) {
+		return "", fmt.Errorf("unsafe driver archive entry %q", name)
+	}
+	return filepath.Clean(name), nil
+}
+
+func copyWithLimit(destination io.Writer, source io.Reader) error {
+	written, err := io.Copy(destination, io.LimitReader(source, maxDriverDownloadSize+1))
+	if err != nil {
+		return err
+	}
+	if written > maxDriverDownloadSize {
+		return fmt.Errorf("driver payload exceeds %d bytes", maxDriverDownloadSize)
+	}
+	return nil
 }
 
 func compare(hash hash.Hash, value string) (string, bool) {
@@ -306,50 +473,145 @@ func compare(hash hash.Hash, value string) (string, bool) {
 
 func getHasher(hash string) (hash.Hash, error) {
 	switch len(hash) {
-	case 0:
-		return nil, nil
-	case 32:
-		return md5.New(), nil
-	case 40:
-		return sha1.New(), nil
 	case 64:
 		return sha256.New(), nil
 	case 128:
 		return sha512.New(), nil
 	}
 
-	return nil, fmt.Errorf("Invalid hash format: %s", hash)
+	return nil, fmt.Errorf("machine-driver checksum must be SHA-256 or SHA-512")
 }
 
 func (d *Driver) download(dest io.Writer) error {
-	logger.Infof("Download %s", d.url)
-	resp, err := http.Get(d.url)
+	u, err := url.Parse(d.url)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("invalid driver download URL")
+	}
+	logger.Infof("Downloading machine driver from host %q", u.Hostname())
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(u.String())
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	_, err = io.Copy(dest, resp.Body)
-	return err
-}
-
-func (d *Driver) cacheFile() string {
-	key := sha256Bytes([]byte(d.url + d.hash))
-
-	base := os.Getenv("CATTLE_HOME")
-	if base == "" {
-		base = "/var/lib/cattle"
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("driver download returned HTTP %d", resp.StatusCode)
 	}
 
-	return path.Join(base, "machine-drivers", key)
+	return copyWithLimit(dest, resp.Body)
 }
 
-func isInstalled(file string) (string, error) {
-	content, err := ioutil.ReadFile(file)
+func (d *Driver) cacheKey() string {
+	return sha256Bytes([]byte(d.url + d.hash))
+}
+
+func trustedStorageRoot(value, fallback string) (string, error) {
+	if value == "" {
+		value = fallback
+	}
+	if strings.IndexByte(value, 0) >= 0 || !filepath.IsAbs(value) {
+		return "", fmt.Errorf("storage root must be an absolute local path")
+	}
+	root, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	root = filepath.Clean(root)
+	if strings.IndexByte(root, 0) >= 0 || !filepath.IsAbs(root) || !strings.HasPrefix(root, string(filepath.Separator)) {
+		return "", fmt.Errorf("storage root must be an absolute local path")
+	}
+	return root, nil
+}
+
+func driverCacheDir() (string, error) {
+	base := os.Getenv("PASTURESTACK_HOME")
+	if base == "" {
+		base = os.Getenv("CATTLE_HOME")
+	}
+	base, err := trustedStorageRoot(base, "/var/lib/pasturestack")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "machine-drivers"), nil
+}
+
+func driverBinDir() (string, error) {
+	return trustedStorageRoot(os.Getenv("GMS_BIN_DIR"), "/usr/local/bin")
+}
+
+func openDriverCacheRoot() (*os.Root, error) {
+	dir, err := driverCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	return os.OpenRoot(dir)
+}
+
+func openDriverBinRoot() (*os.Root, error) {
+	dir, err := driverBinDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	return os.OpenRoot(dir)
+}
+
+func safeDriverName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if len(name) <= len("docker-machine-driver-") || len(name) > 255 || !strings.HasPrefix(name, "docker-machine-driver-") ||
+		strings.IndexByte(name, 0) >= 0 || strings.HasPrefix(name, "-") || !filepath.IsLocal(name) || filepath.Base(name) != name ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid machine driver name %q", name)
+	}
+	for _, char := range name {
+		if char <= 0x1f || char == 0x7f {
+			return "", fmt.Errorf("invalid machine driver name %q", name)
+		}
+	}
+	return name, nil
+}
+
+func isInstalled(root *os.Root, key string) (string, error) {
+	if len(key) != sha256.Size*2 || strings.Trim(key, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("invalid driver cache key")
+	}
+	content, err := root.ReadFile(key)
 	if os.IsNotExist(err) {
 		return "", nil
 	}
-	return strings.TrimSpace(string(content)), err
+	if err != nil {
+		return "", err
+	}
+	return safeDriverName(string(content))
+}
+
+func removeIfPresent(root *os.Root, name string) error {
+	err := root.Remove(name)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func safeErrorMessage(message string) string {
+	message = strings.TrimSpace(message)
+	var clean strings.Builder
+	for _, char := range message {
+		if char < 0x20 || char == 0x7f {
+			clean.WriteByte(' ')
+		} else {
+			clean.WriteRune(char)
+		}
+		if clean.Len() >= 4096 {
+			break
+		}
+	}
+	return clean.String()
 }
 
 func sha256Bytes(content []byte) string {

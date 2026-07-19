@@ -22,7 +22,7 @@ func SyncBuiltin() error {
 		return err
 	}
 
-	// this code block waits for handler to activate on the cattle side
+	// This block waits for the control-plane handler to become active.
 	// this is necessary to make sure machine drivers show up when adding hosts
 Loop:
 	for {
@@ -71,7 +71,7 @@ Loop:
 	}
 
 	for _, driver := range installed {
-		logger.Infof("Deleting old builtin driver %s", driver)
+		logger.Infof("Deleting old builtin driver %s", driver.Name)
 		apiClient.MachineDriver.Delete(&driver)
 	}
 
