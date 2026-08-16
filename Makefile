@@ -1,15 +1,11 @@
 TARGETS := $(shell ls scripts)
 DAPPER_IMAGE ?= pasturestack-host-provisioner-dapper:ubuntu26
 DAPPER_SOURCE ?= /go/src/github.com/PastureStack/host-provisioner
-DOCKER_VERSION ?= 29.7.2
-DOCKER_SHA256 ?= 803d433f226db4776e1768fd319fc6c6e4935a456acf84fcc0080818b854bc8f
 DOCKER_BUILD_NETWORK ?= host
 UBUNTU_MIRROR ?= http://archive.ubuntu.com/ubuntu
 
 .dapper-image: Dockerfile.dapper
 	docker build \
-		--build-arg DOCKER_VERSION=$(DOCKER_VERSION) \
-		--build-arg DOCKER_SHA256=$(DOCKER_SHA256) \
 		--build-arg UBUNTU_MIRROR=$(UBUNTU_MIRROR) \
 		--network $(DOCKER_BUILD_NETWORK) \
 		-t $(DAPPER_IMAGE) \

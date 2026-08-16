@@ -8,6 +8,10 @@ echo Running validation
 grep -Fq 'ARG GO_VERSION=1.26.6' Dockerfile.dapper
 grep -Fq 'ARG GO_SHA256=708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89' Dockerfile.dapper
 grep -Fq 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969' .github/workflows/security-release-gate.yml
+if grep -E 'ARG DOCKER_VERSION=|download\.docker\.com/linux/static|tar xzf /tmp/docker\.tgz' Dockerfile.dapper; then
+  echo 'Unused Docker CLI must not be bundled in the build container.' >&2
+  exit 1
+fi
 if grep -R -E 'rev-list --count .*\.\.HEAD.*-eq 1|verification/host-provisioner-' .github/workflows; then
   echo 'Legacy one-commit or verification-branch CI gate is not allowed.' >&2
   exit 1
