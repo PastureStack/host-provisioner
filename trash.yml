@@ -19,4 +19,4 @@ github.com/patrickmn/go-cache 1881a9bccb818787f68c52bfba648c6cf34c34fa
 
 github.com/stretchr/testify             v1.1.4
 github.com/pmezard/go-difflib	          v1.0.0
-github.com/davecgh/go-spew              5215b55
+github.com/davecgh/go-spew              5215b55f46b2b919f50a1df0eaa5886afe4e3b3d

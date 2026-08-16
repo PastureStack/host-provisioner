@@ -1,9 +1,12 @@
 name: Security release gate
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
-      - 'verification/host-provisioner-*'
+      - main
   workflow_dispatch:
 
 permissions:
@@ -19,12 +22,12 @@ jobs:
     timeout-minutes: 120
     env:
       DAPPER_IMAGE: pasturestack/host-provisioner-dapper:${{ github.sha }}
-      TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+      TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
       VERSION_OVERRIDE: v0.39.5
       SOURCE_DATE_EPOCH: '0'
     steps:
       - name: Check out candidate
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -34,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(git status --porcelain)"
-          test "$(git rev-list --count 22d7baca609c18589f08225a97bf8c5e00109204..HEAD)" -eq 1
+          git merge-base --is-ancestor 22d7baca609c18589f08225a97bf8c5e00109204 HEAD
           mkdir -p evidence
           git rev-parse HEAD > evidence/source-revision.txt
           sha256sum Dockerfile.dapper Makefile .github/workflows/*.yml > evidence/source-locks.sha256

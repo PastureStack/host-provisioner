@@ -1,9 +1,12 @@
 name: Validate Host Provisioner
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
-      - 'verification/host-provisioner-*'
+      - main
   workflow_dispatch:
 
 permissions:
@@ -19,7 +22,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Check out immutable source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -29,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(git status --porcelain)"
-          test "$(git rev-list --count 22d7baca609c18589f08225a97bf8c5e00109204..HEAD)" -eq 1
+          git merge-base --is-ancestor 22d7baca609c18589f08225a97bf8c5e00109204 HEAD
           grep -Fq 'VERSION_OVERRIDE: v0.39.5' .github/workflows/validate.yml
 
       - name: Run complete tests, validation, and package

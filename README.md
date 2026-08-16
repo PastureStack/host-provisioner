@@ -8,7 +8,7 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 ## Project status
 
-This is a reviewed migration candidate based on the preserved upstream `v0.39.4` boundary. Existing Ubuntu 26.04, Go 1.26.5, dependency, driver checksum, jailer, and test maintenance is retained. The build-only Docker 29.7.2 archive is pinned by SHA-256. Product-owned imports, executable names, state defaults, router identities, and operator messages use PastureStack naming. Machine storage is constrained to its configured root and restored configuration archives reject traversal, links, and special files. Driver publication and production deployment remain disabled while the complete Server release is assembled.
+This is a reviewed migration candidate based on the preserved upstream `v0.39.4` boundary. Existing Ubuntu 26.04, Go 1.26.6, dependency, driver checksum, jailer, and test maintenance is retained. The build-only Docker 29.7.2 archive is pinned by SHA-256. Product-owned imports, executable names, state defaults, router identities, and operator messages use PastureStack naming. Machine storage is constrained to its configured root and restored configuration archives reject traversal, links, and special files. Driver publication and production deployment remain disabled while the complete Server release is assembled.
 
 ## Configuration
 
@@ -23,6 +23,8 @@ make test
 make build
 make package
 ```
+
+Vendored dependencies are recorded in `trash.yml` with semantic-version tags or complete upstream commit IDs. Validation rejects abbreviated commit IDs so dependency provenance remains unambiguous.
 
 The build container does not receive the host Docker socket. For the reviewed Server release, build with `VERSION_OVERRIDE=v0.39.5` and `SOURCE_DATE_EPOCH=0`; packaging produces the deterministic Release asset `host-provisioner-0.39.5-linux-amd64.tar.xz`. The archive contains the executable, root license, origin record, and preserved bundled-dependency legal files. PastureStack Server downloads that asset from its versioned GitHub Release and verifies its SHA-256 digest before installation. Users do not need to host a package mirror.
 
