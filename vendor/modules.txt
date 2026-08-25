@@ -84,11 +84,11 @@ github.com/opencontainers/go-digest
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
 # github.com/rancher/event-subscriber v0.0.0 => ./third_party/event-subscriber
-## explicit; go 1.27.0
+## explicit; go 1.26.0
 github.com/rancher/event-subscriber/events
 github.com/rancher/event-subscriber/locks
 # github.com/rancher/go-rancher v0.0.0 => ./third_party/go-rancher
-## explicit; go 1.27.0
+## explicit; go 1.26.0
 github.com/rancher/go-rancher/v2
 # github.com/sirupsen/logrus v1.10.1
 ## explicit; go 1.23
