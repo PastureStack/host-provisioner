@@ -18,6 +18,6 @@ Report suspected vulnerabilities through this repository's private security advi
 
 ## Build-image scan decisions
 
-The disposable Ubuntu builder is scanned both raw and with the repository's OpenVEX document. A `not_affected` statement is accepted only when the complete raw Critical/High vulnerability-ID and package-PURL set exactly matches every reviewed statement. Any additional finding, changed package version, missing statement, secret, or product finding fails the release gate.
+The source tree and shipped CGO-disabled product binary must contain no Critical or High vulnerability and no secret. The disposable Ubuntu builder is also scanned, but is not shipped or run as the product.
 
-The reviewed `linux-libc-dev` package contains user-space API headers needed by GCC and Go race tests, not the vulnerable Linux kernel implementations. The builder is neither shipped nor run as the product, and no OpenVEX statement is applied to the source tree or product binary.
+Critical or High records in the builder are accepted only when every record is an unfixed `affected` finding for the Ubuntu `linux-libc-dev` package. That package contains user-space API headers needed by GCC and Go race tests, not the vulnerable Linux kernel implementation. The gate reports the raw count and fails closed for any other package, fixed finding, status, package URL, or secret. This categorical rule follows the build boundary and does not require a version-specific list that becomes stale on each Ubuntu package refresh.

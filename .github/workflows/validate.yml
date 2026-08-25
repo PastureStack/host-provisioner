@@ -49,7 +49,15 @@ jobs:
           tar -tJf "$asset" | grep -Fx "${package_dir}/host-provisioner"
           tar -tJf "$asset" | grep -Fx "${package_dir}/LICENSE"
           tar -tJf "$asset" | grep -Fx "${package_dir}/ORIGIN.md"
-          test "$(tar -tJf "$asset" | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")" -eq 19
+          expected_legal=$(find vendor -type f \( \
+            -name 'LICENSE' -o -name 'LICENSE.*' -o \
+            -name 'NOTICE' -o -name 'NOTICE.*' -o \
+            -name 'COPYING' -o -name 'COPYING.*' -o \
+            -name 'AUTHORS' -o -name 'AUTHORS.*' \
+          \) | wc -l)
+          actual_legal=$(tar -tJf "$asset" | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")
+          test "$expected_legal" -gt 0
+          test "$actual_legal" -eq "$expected_legal"
           mkdir -p evidence extracted
           tar -xJf "$asset" -C extracted
           test -x "extracted/${package_dir}/host-provisioner"

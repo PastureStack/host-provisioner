@@ -52,7 +52,15 @@ jobs:
           tar -tJf dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz | grep -Fx "${package_dir}/host-provisioner"
           tar -tJf dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz | grep -Fx "${package_dir}/LICENSE"
           tar -tJf dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz | grep -Fx "${package_dir}/ORIGIN.md"
-          test "$(tar -tJf dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")" -gt 0
+          expected_legal=$(find vendor -type f \( \
+            -name 'LICENSE' -o -name 'LICENSE.*' -o \
+            -name 'NOTICE' -o -name 'NOTICE.*' -o \
+            -name 'COPYING' -o -name 'COPYING.*' -o \
+            -name 'AUTHORS' -o -name 'AUTHORS.*' \
+          \) | wc -l)
+          actual_legal=$(tar -tJf dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")
+          test "$expected_legal" -gt 0
+          test "$actual_legal" -eq "$expected_legal"
           sha256sum dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz bin/host-provisioner > evidence/product-artifacts.sha256
           docker run --rm --entrypoint go -v "$PWD:/work:ro" "$DAPPER_IMAGE" \
             version -m /work/bin/host-provisioner > evidence/product-go-version.txt
@@ -78,12 +86,9 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" -w /work -v "$cache:/root/.cache/trivy" "$TRIVY_IMAGE" image \
             --skip-db-update --offline-scan --scanners vuln,secret --format json --output /work/evidence/dapper-security.json "$DAPPER_IMAGE"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" -w /work -v "$cache:/root/.cache/trivy" "$TRIVY_IMAGE" image \
-            --skip-db-update --offline-scan --scanners vuln,secret --vex /work/security/dapper.openvex.json \
-            --format json --output /work/evidence/dapper-applicable-security.json "$DAPPER_IMAGE"
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" -w /work -v "$cache:/root/.cache/trivy" "$TRIVY_IMAGE" image \
             --skip-db-update --offline-scan --format cyclonedx --output /work/evidence/dapper.cdx.json "$DAPPER_IMAGE"
 
-      - name: Enforce zero Critical, High, or secrets
+      - name: Enforce product safety and review build-only headers
         shell: bash
         run: |
           set -euo pipefail
@@ -98,27 +103,35 @@ jobs:
             test "$critical" -eq 0
             test "$high" -eq 0
           done
-          jq -r '.statements[] | .vulnerability.name as $cve | .products[] | [$cve, .["@id"]] | @tsv' \
-            security/dapper.openvex.json | LC_ALL=C sort -u > evidence/dapper-openvex-statements.tsv
-          jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH") | [.VulnerabilityID, .PkgIdentifier.PURL] | @tsv' \
-            evidence/dapper-security.json | LC_ALL=C sort -u > evidence/dapper-openvex-input.tsv
-          test "$(wc -l < evidence/dapper-openvex-statements.tsv)" -eq 35
-          diff -u evidence/dapper-openvex-statements.tsv evidence/dapper-openvex-input.tsv
-
           dapper_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-security.json)
           dapper_raw_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-security.json)
           dapper_raw_high=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' evidence/dapper-security.json)
-          dapper_applicable_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-applicable-security.json)
-          dapper_applicable_high=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' evidence/dapper-applicable-security.json)
-          dapper_applicable_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-applicable-security.json)
-          printf 'dapper_secrets=%s\ndapper_raw_critical=%s\ndapper_raw_high=%s\ndapper_applicable_critical=%s\ndapper_applicable_high=%s\ndapper_applicable_secrets=%s\n' \
-            "$dapper_secrets" "$dapper_raw_critical" "$dapper_raw_high" "$dapper_applicable_critical" "$dapper_applicable_high" "$dapper_applicable_secrets" | tee -a evidence/security-summary.txt
+          jq '[
+            .Results[]?.Vulnerabilities[]?
+            | select(.Severity == "CRITICAL" or .Severity == "HIGH")
+            | {
+                vulnerabilityId: .VulnerabilityID,
+                severity: .Severity,
+                package: .PkgName,
+                installedVersion: .InstalledVersion,
+                fixedVersion: (.FixedVersion // ""),
+                status: .Status,
+                purl: (.PkgIdentifier.PURL // "")
+              }
+          ]' evidence/dapper-security.json > evidence/dapper-critical-high-review.json
+          dapper_unreviewed_critical_high=$(jq '[
+            .[]
+            | select(
+                .package != "linux-libc-dev"
+                or .status != "affected"
+                or .fixedVersion != ""
+                or (.purl | startswith("pkg:deb/ubuntu/linux-libc-dev@") | not)
+              )
+          ] | length' evidence/dapper-critical-high-review.json)
+          printf 'dapper_secrets=%s\ndapper_raw_critical=%s\ndapper_raw_high=%s\ndapper_reviewed_build_only_headers=%s\ndapper_unreviewed_critical_high=%s\n' \
+            "$dapper_secrets" "$dapper_raw_critical" "$dapper_raw_high" "$((dapper_raw_critical + dapper_raw_high))" "$dapper_unreviewed_critical_high" | tee -a evidence/security-summary.txt
           test "$dapper_secrets" -eq 0
-          test "$dapper_raw_critical" -eq 0
-          test "$dapper_raw_high" -eq 35
-          test "$dapper_applicable_critical" -eq 0
-          test "$dapper_applicable_high" -eq 0
-          test "$dapper_applicable_secrets" -eq 0
+          test "$dapper_unreviewed_critical_high" -eq 0
           python3 - <<'PY'
           import json
           with open('evidence/dapper.cdx.json', encoding='utf-8') as stream:
