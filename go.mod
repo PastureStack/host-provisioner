@@ -10,7 +10,7 @@ require (
 	github.com/fsouza/go-dockerclient v1.13.3
 	github.com/rancher/event-subscriber v0.0.0
 	github.com/rancher/go-rancher v0.0.0
-	github.com/sirupsen/logrus v1.10.1
+	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
 )
 
