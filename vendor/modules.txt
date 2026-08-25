@@ -1,0 +1,129 @@
+# github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c
+## explicit; go 1.16
+github.com/Azure/go-ansiterm
+github.com/Azure/go-ansiterm/winterm
+# github.com/Microsoft/go-winio v0.6.2
+## explicit; go 1.21
+github.com/Microsoft/go-winio
+github.com/Microsoft/go-winio/internal/fs
+github.com/Microsoft/go-winio/internal/socket
+github.com/Microsoft/go-winio/internal/stringbuffer
+github.com/Microsoft/go-winio/pkg/guid
+# github.com/containerd/log v0.1.0
+## explicit; go 1.20
+github.com/containerd/log
+# github.com/distribution/reference v0.6.0
+## explicit; go 1.20
+github.com/distribution/reference
+# github.com/docker/go-units v0.5.0
+## explicit
+github.com/docker/go-units
+# github.com/docker/machine v0.16.2-gitlab.52 => gitlab.com/gitlab-org/ci-cd/docker-machine v0.16.2-gitlab.52
+## explicit; go 1.26.3
+github.com/docker/machine/libmachine/drivers
+github.com/docker/machine/libmachine/drivers/plugin/localbinary
+github.com/docker/machine/libmachine/drivers/rpc
+github.com/docker/machine/libmachine/log
+github.com/docker/machine/libmachine/mcnflag
+github.com/docker/machine/libmachine/mcnutils
+github.com/docker/machine/libmachine/ssh
+github.com/docker/machine/libmachine/state
+github.com/docker/machine/libmachine/version
+github.com/docker/machine/version
+# github.com/fsouza/go-dockerclient v1.13.3
+## explicit; go 1.26
+github.com/fsouza/go-dockerclient
+# github.com/gorilla/websocket v1.5.3
+## explicit; go 1.12
+github.com/gorilla/websocket
+# github.com/klauspost/compress v1.19.2
+## explicit; go 1.24
+github.com/klauspost/compress
+github.com/klauspost/compress/fse
+github.com/klauspost/compress/huff0
+github.com/klauspost/compress/internal/cpuinfo
+github.com/klauspost/compress/internal/le
+github.com/klauspost/compress/internal/snapref
+github.com/klauspost/compress/zstd
+github.com/klauspost/compress/zstd/internal/xxhash
+# github.com/moby/go-archive v0.3.3
+## explicit; go 1.25
+github.com/moby/go-archive
+github.com/moby/go-archive/compression
+github.com/moby/go-archive/internal/archiveoptions
+github.com/moby/go-archive/tarheader
+# github.com/moby/moby/api v1.55.0
+## explicit; go 1.24
+github.com/moby/moby/api/pkg/stdcopy
+github.com/moby/moby/api/types/jsonstream
+github.com/moby/moby/api/types/registry
+# github.com/moby/moby/client v0.5.1
+## explicit; go 1.24
+github.com/moby/moby/client/pkg/jsonmessage
+# github.com/moby/patternmatcher v0.6.1
+## explicit; go 1.19
+github.com/moby/patternmatcher
+# github.com/moby/sys/sequential v0.7.0
+## explicit; go 1.24.0
+github.com/moby/sys/sequential
+# github.com/moby/sys/user v0.4.1
+## explicit; go 1.18
+github.com/moby/sys/user
+# github.com/moby/sys/userns v0.2.0
+## explicit; go 1.21
+github.com/moby/sys/userns
+# github.com/moby/term v0.5.2
+## explicit; go 1.18
+github.com/moby/term
+github.com/moby/term/windows
+# github.com/opencontainers/go-digest v1.0.0
+## explicit; go 1.13
+github.com/opencontainers/go-digest
+# github.com/opencontainers/image-spec v1.1.1
+## explicit; go 1.18
+github.com/opencontainers/image-spec/specs-go
+github.com/opencontainers/image-spec/specs-go/v1
+# github.com/rancher/event-subscriber v0.0.0 => ./third_party/event-subscriber
+## explicit; go 1.27.0
+github.com/rancher/event-subscriber/events
+github.com/rancher/event-subscriber/locks
+# github.com/rancher/go-rancher v0.0.0 => ./third_party/go-rancher
+## explicit; go 1.27.0
+github.com/rancher/go-rancher/v2
+# github.com/sirupsen/logrus v1.10.1
+## explicit; go 1.23
+github.com/sirupsen/logrus
+# github.com/stretchr/testify v1.12.1
+## explicit; go 1.17
+github.com/stretchr/testify/assert
+github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/internal/difflib
+github.com/stretchr/testify/internal/spew
+github.com/stretchr/testify/require
+# go.yaml.in/yaml/v3 v3.0.5
+## explicit; go 1.16
+go.yaml.in/yaml/v3
+# golang.org/x/crypto v0.55.0
+## explicit; go 1.25.0
+golang.org/x/crypto/blowfish
+golang.org/x/crypto/chacha20
+golang.org/x/crypto/cryptobyte
+golang.org/x/crypto/cryptobyte/asn1
+golang.org/x/crypto/curve25519
+golang.org/x/crypto/internal/alias
+golang.org/x/crypto/internal/poly1305
+golang.org/x/crypto/ssh
+golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
+golang.org/x/crypto/ssh/terminal
+# golang.org/x/sys v0.47.0
+## explicit; go 1.25.0
+golang.org/x/sys/cpu
+golang.org/x/sys/plan9
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# golang.org/x/term v0.45.0
+## explicit; go 1.25.0
+golang.org/x/term
+# github.com/docker/machine => gitlab.com/gitlab-org/ci-cd/docker-machine v0.16.2-gitlab.52
+# github.com/rancher/event-subscriber => ./third_party/event-subscriber
+# github.com/rancher/go-rancher => ./third_party/go-rancher

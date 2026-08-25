@@ -14,7 +14,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/pkg/errors"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
@@ -214,7 +213,7 @@ var getMachine = func(id string, apiClient *client.RancherClient) (*client.Machi
 
 	err = applyHostTemplate(host, m, apiClient)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to apply host template")
+		return nil, fmt.Errorf("failed to apply host template: %w", err)
 	}
 
 	return m, nil
@@ -263,7 +262,7 @@ func apply(m *client.Machine, ht *client.HostTemplate, apiClient *client.Rancher
 
 	secretValues := map[string]interface{}{}
 	if err := apiClient.GetLink(ht.Resource, "secretValues", &secretValues); err != nil {
-		return errors.Wrap(err, "Get secretValues link")
+		return fmt.Errorf("get secretValues link: %w", err)
 	}
 
 	err := copyData(m, secretValues)
@@ -281,11 +280,11 @@ func apply(m *client.Machine, ht *client.HostTemplate, apiClient *client.Rancher
 func populateFields(m *client.Machine) error {
 	content, err := json.Marshal(m)
 	if err != nil {
-		return errors.Wrap(err, "populateFields marshall")
+		return fmt.Errorf("populateFields marshal: %w", err)
 	}
 	mm := map[string]interface{}{}
 	if err := json.Unmarshal(content, &mm); err != nil {
-		return errors.Wrap(err, "populateFields unmarshall to mm")
+		return fmt.Errorf("populateFields unmarshal to map: %w", err)
 	}
 	machineConfig := mm[m.Driver+"Config"]
 	if machineConfig == nil {
@@ -293,7 +292,7 @@ func populateFields(m *client.Machine) error {
 	}
 	machineConfigContent, err := json.Marshal(machineConfig)
 	if err != nil {
-		return errors.Wrap(err, "populateFields marshall machineConfig")
+		return fmt.Errorf("populateFields marshal machineConfig: %w", err)
 	}
 	if m.Data == nil {
 		m.Data = map[string]interface{}{}
@@ -307,7 +306,7 @@ func populateFields(m *client.Machine) error {
 		driverConfig = map[string]interface{}{}
 	}
 	if err := json.Unmarshal(machineConfigContent, &driverConfig); err != nil {
-		return errors.Wrap(err, "populateFields unmarshall to fields")
+		return fmt.Errorf("populateFields unmarshal to fields: %w", err)
 	}
 	for _, key := range []string{"id", "type", "links", "actions"} {
 		delete(driverConfig, key)
@@ -320,16 +319,16 @@ func populateFields(m *client.Machine) error {
 func copyData(m *client.Machine, from interface{}) error {
 	content, err := json.Marshal(from)
 	if err != nil {
-		return errors.Wrap(err, "copyData marshall")
+		return fmt.Errorf("copyData marshal: %w", err)
 	}
 	err = json.Unmarshal(content, m)
 	if err != nil {
-		return errors.Wrap(err, "copyData unmarshall")
+		return fmt.Errorf("copyData unmarshal: %w", err)
 	}
 	fields := m.Data["fields"]
 	err = json.Unmarshal(content, &fields)
 	if err != nil {
-		return errors.Wrap(err, "copyData unmarshall to fields")
+		return fmt.Errorf("copyData unmarshal to fields: %w", err)
 	}
 	m.Data["fields"] = fields
 	return nil
@@ -494,7 +493,7 @@ func createJail(machineDir string) error {
 	cmd := exec.CommandContext(ctx, "/usr/bin/jailer.sh", machineDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return errors.WithMessage(err, fmt.Sprintf("error running the jail command: %v", string(out)))
+		return fmt.Errorf("error running the jail command: %s: %w", out, err)
 	}
 	logrus.Debugf("Output from create jail command %v", string(out))
 	return nil

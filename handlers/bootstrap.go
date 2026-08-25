@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/distribution/reference"
+	"github.com/distribution/reference"
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"

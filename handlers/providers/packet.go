@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/rancher/go-rancher/v2"
@@ -17,7 +18,7 @@ type PacketHandler struct {
 }
 
 func (*PacketHandler) HandleCreate(machine *client.Machine, machineDir string) error {
-	return nil
+	return errors.New("Packet/Equinix Metal is retired; new machine creation is disabled")
 }
 
 func (*PacketHandler) HandleError(msg string) string {

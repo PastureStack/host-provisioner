@@ -1,15 +1,52 @@
 package handlers
 
 import (
+	"sync"
 	"time"
 
-	"github.com/patrickmn/go-cache"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
 )
 
-var removeCache = cache.New(5*time.Minute, 30*time.Second)
+type expiringSet struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	entries map[string]time.Time
+}
+
+func newExpiringSet(ttl time.Duration) *expiringSet {
+	return &expiringSet{ttl: ttl, entries: make(map[string]time.Time)}
+}
+
+func (s *expiringSet) contains(key string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	expires, ok := s.entries[key]
+	if !ok {
+		return false
+	}
+	if !now.Before(expires) {
+		delete(s.entries, key)
+		return false
+	}
+	return true
+}
+
+func (s *expiringSet) add(key string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for existing, expires := range s.entries {
+		if !now.Before(expires) {
+			delete(s.entries, existing)
+		}
+	}
+	s.entries[key] = now.Add(s.ttl)
+}
+
+var removeCache = newExpiringSet(5 * time.Minute)
 
 func PurgeMachine(event *events.Event, apiClient *client.RancherClient) error {
 	logger.WithFields(logrus.Fields{
@@ -17,7 +54,7 @@ func PurgeMachine(event *events.Event, apiClient *client.RancherClient) error {
 		"eventId":    event.ID,
 	}).Info("Purging Machine")
 
-	if _, ok := removeCache.Get(event.ResourceID); ok {
+	if removeCache.contains(event.ResourceID, time.Now()) {
 		logger.WithFields(logrus.Fields{
 			"resourceId": event.ResourceID,
 			"eventId":    event.ID,
@@ -42,7 +79,7 @@ func PurgeMachine(event *events.Event, apiClient *client.RancherClient) error {
 		}
 	}
 
-	removeCache.Add(event.ResourceID, true, cache.DefaultExpiration)
+	removeCache.add(event.ResourceID, time.Now())
 
 	logger.WithFields(logrus.Fields{
 		"resourceId":        event.ResourceID,

@@ -17,7 +17,7 @@ var (
 	// plugin server.
 	defaultTimeout               = 10 * time.Second
 	CurrentBinaryIsDockerMachine = false
-	CoreDrivers                  = [...]string{"amazonec2", "azure", "digitalocean",
+	CoreDrivers                  = []string{"amazonec2", "azure", "digitalocean",
 		"exoscale", "generic", "google", "hyperv", "none", "openstack",
 		"rackspace", "softlayer", "virtualbox", "vmwarefusion",
 		"vmwarevcloudair", "vmwarevsphere"}
@@ -72,7 +72,7 @@ type Plugin struct {
 	Addr        string
 	MachineName string
 	addrCh      chan string
-	stopCh      chan bool
+	stopCh      chan struct{}
 	timeout     time.Duration
 }
 
@@ -85,16 +85,19 @@ type Executor struct {
 
 type ErrPluginBinaryNotFound struct {
 	driverName string
+	driverPath string
 }
 
 func (e ErrPluginBinaryNotFound) Error() string {
-	return fmt.Sprintf("Driver %q not found. Do you have the plugin binary accessible in your PATH?", e.driverName)
+	return fmt.Sprintf("Driver %q not found. Do you have the plugin binary %q accessible in your PATH?", e.driverName, e.driverPath)
 }
 
 // driverPath finds the path of a driver binary by its name.
-//  + If the driver is a core driver, there is no separate driver binary. We reuse current binary if it's `docker-machine`
+//   - If the driver is a core driver, there is no separate driver binary. We reuse current binary if it's `docker-machine`
+//
 // or we assume `docker-machine` is in the PATH.
-//  + If the driver is NOT a core driver, then the separate binary must be in the PATH and it's name must be
+//   - If the driver is NOT a core driver, then the separate binary must be in the PATH and it's name must be
+//
 // `docker-machine-driver-driverName`
 func driverPath(driverName string) string {
 	for _, coreDriver := range CoreDrivers {
@@ -114,13 +117,13 @@ func NewPlugin(driverName string) (*Plugin, error) {
 	driverPath := driverPath(driverName)
 	binaryPath, err := exec.LookPath(driverPath)
 	if err != nil {
-		return nil, ErrPluginBinaryNotFound{driverName}
+		return nil, ErrPluginBinaryNotFound{driverName, driverPath}
 	}
 
 	log.Debugf("Found binary path at %s", binaryPath)
 
 	return &Plugin{
-		stopCh: make(chan bool),
+		stopCh: make(chan struct{}),
 		addrCh: make(chan string, 1),
 		Executor: &Executor{
 			DriverName: driverName,
@@ -167,19 +170,23 @@ func (lbe *Executor) Close() error {
 	return nil
 }
 
-func stream(scanner *bufio.Scanner, streamOutCh chan<- string) {
+func stream(scanner *bufio.Scanner, streamOutCh chan<- string, stopCh <-chan struct{}) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if err := scanner.Err(); err != nil {
 			log.Warnf("Scanning stream: %s", err)
 		}
-		streamOutCh <- strings.Trim(line, "\n")
+		select {
+		case streamOutCh <- strings.Trim(line, "\n"):
+		case <-stopCh:
+			return
+		}
 	}
 }
 
 func (lbp *Plugin) AttachStream(scanner *bufio.Scanner) <-chan string {
 	streamOutCh := make(chan string)
-	go stream(scanner, streamOutCh)
+	go stream(scanner, streamOutCh, lbp.stopCh)
 	return streamOutCh
 }
 
@@ -240,6 +247,6 @@ func (lbp *Plugin) Address() (string, error) {
 }
 
 func (lbp *Plugin) Close() error {
-	lbp.stopCh <- true
+	close(lbp.stopCh)
 	return nil
 }

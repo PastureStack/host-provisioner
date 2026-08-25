@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/pkg/errors"
 	client "github.com/rancher/go-rancher/v2"
 )
 
@@ -91,7 +91,7 @@ func buildCommand(machineDir string, cmdArgs []string) (*exec.Cmd, error) {
 
 	cred, err := getUserCred()
 	if err != nil {
-		return nil, errors.WithMessage(err, "get user cred error")
+		return nil, fmt.Errorf("get user credentials: %w", err)
 	}
 
 	command := exec.Command(machineCmd, cmdArgs...)

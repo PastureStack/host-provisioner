@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -21,7 +22,6 @@ import (
 	"time"
 
 	"github.com/PastureStack/host-provisioner/logging"
-	"github.com/pkg/errors"
 )
 
 var logger = logging.Logger()
@@ -112,11 +112,11 @@ func (d *Driver) setError(err error) error {
 	}
 	cacheRoot, rootErr := openDriverCacheRoot()
 	if rootErr != nil {
-		return errors.Wrap(rootErr, err.Error())
+		return fmt.Errorf("%v: %w", err, rootErr)
 	}
 	defer cacheRoot.Close()
 	if writeErr := cacheRoot.WriteFile(d.cacheKey()+".error", []byte(err.Error()), 0600); writeErr != nil {
-		return errors.Wrap(writeErr, err.Error())
+		return fmt.Errorf("%v: %w", err, writeErr)
 	}
 	return err
 }
@@ -231,7 +231,7 @@ func (d *Driver) Install() error {
 	removeIfPresent(binRoot, tmpName)
 	f, err := binRoot.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 	if err != nil {
-		return errors.Wrapf(err, "Couldn't open temporary driver %v for writing", tmpName)
+		return fmt.Errorf("couldn't open temporary driver %v for writing: %w", tmpName, err)
 	}
 	defer removeIfPresent(binRoot, tmpName)
 
@@ -239,7 +239,7 @@ func (d *Driver) Install() error {
 	src, err := cacheRoot.Open(srcName)
 	if err != nil {
 		f.Close()
-		return errors.Wrapf(err, "Couldn't open cached driver %v for copying", driverName)
+		return fmt.Errorf("couldn't open cached driver %v for copying: %w", driverName, err)
 	}
 	defer src.Close()
 
@@ -247,16 +247,18 @@ func (d *Driver) Install() error {
 	_, err = io.Copy(f, src)
 	if err != nil {
 		f.Close()
-		return errors.Wrapf(err, "Couldn't copy cached driver %v", driverName)
+		return fmt.Errorf("couldn't copy cached driver %v: %w", driverName, err)
 	}
 	if err := f.Close(); err != nil {
-		return errors.Wrapf(err, "Couldn't close temporary driver %v", driverName)
+		return fmt.Errorf("couldn't close temporary driver %v: %w", driverName, err)
 	}
 	if err := binRoot.Chmod(tmpName, 0755); err != nil {
-		return errors.Wrapf(err, "Couldn't mark driver %v executable", driverName)
+		return fmt.Errorf("couldn't mark driver %v executable: %w", driverName, err)
 	}
-	err = binRoot.Rename(tmpName, driverName)
-	return errors.Wrapf(err, "Couldn't install driver %v", driverName)
+	if err := binRoot.Rename(tmpName, driverName); err != nil {
+		return fmt.Errorf("couldn't install driver %v: %w", driverName, err)
+	}
+	return nil
 }
 
 func isElf(input string) bool {

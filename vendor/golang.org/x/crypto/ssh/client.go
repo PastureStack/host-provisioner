@@ -5,16 +5,21 @@
 package ssh
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
+	"time"
 )
 
 // Client implements a traditional SSH client that supports shells,
-// subprocesses, port forwarding and tunneled dialing.
+// subprocesses, TCP port/streamlocal forwarding and tunneled dialing.
 type Client struct {
 	Conn
+
+	handleForwardsOnce sync.Once // guards calling (*Client).handleForwards
 
 	forwards        forwardList // forwarded tcpip connections from the remote side
 	mu              sync.Mutex
@@ -39,7 +44,7 @@ func (c *Client) HandleChannelOpen(channelType string) <-chan NewChannel {
 		return nil
 	}
 
-	ch = make(chan NewChannel, 16)
+	ch = make(chan NewChannel, chanSize)
 	c.channelHandlers[channelType] = ch
 	return ch
 }
@@ -57,7 +62,6 @@ func NewClient(c Conn, chans <-chan NewChannel, reqs <-chan *Request) *Client {
 		conn.Wait()
 		conn.forwards.closeAll()
 	}()
-	go conn.forwards.handleChannels(conn.HandleChannelOpen("forwarded-tcpip"))
 	return conn
 }
 
@@ -67,13 +71,44 @@ func NewClient(c Conn, chans <-chan NewChannel, reqs <-chan *Request) *Client {
 func NewClientConn(c net.Conn, addr string, config *ClientConfig) (Conn, <-chan NewChannel, <-chan *Request, error) {
 	fullConf := *config
 	fullConf.SetDefaults()
+	if fullConf.HostKeyCallback == nil {
+		c.Close()
+		return nil, nil, nil, errors.New("ssh: must specify HostKeyCallback")
+	}
+
 	conn := &connection{
-		sshConn: sshConn{conn: c},
+		sshConn: sshConn{conn: c, user: fullConf.User},
 	}
 
 	if err := conn.clientHandshake(addr, &fullConf); err != nil {
 		c.Close()
-		return nil, nil, nil, fmt.Errorf("ssh: handshake failed: %v", err)
+		return nil, nil, nil, fmt.Errorf("ssh: handshake failed: %w", err)
+	}
+	conn.mux = newMux(conn.transport)
+	return conn, conn.mux.incomingChannels, conn.mux.incomingRequests, nil
+}
+
+// NewControlClientConn establishes an SSH connection over an OpenSSH
+// ControlMaster socket c in proxy mode.
+//
+// Note that this package only implements the client side of the multiplexing
+// protocol. The provided net.Conn must be a local, secure connection (such as a
+// Unix domain socket) connected to an already-running OpenSSH process acting as
+// the ControlMaster.
+//
+// WARNING: Because proxy mode bypasses the standard cryptographic handshake
+// passing a standard network connection (e.g., TCP) will result in plaintext
+// data leakage.
+//
+// The Request and NewChannel channels must be serviced or the connection
+// will hang.
+func NewControlClientConn(c net.Conn) (Conn, <-chan NewChannel, <-chan *Request, error) {
+	conn := &connection{
+		sshConn: sshConn{conn: c},
+	}
+	var err error
+	if conn.transport, err = handshakeControlProxy(c); err != nil {
+		return nil, nil, nil, fmt.Errorf("ssh: control proxy handshake failed: %w", err)
 	}
 	conn.mux = newMux(conn.transport)
 	return conn, conn.mux.incomingChannels, conn.mux.incomingRequests, nil
@@ -96,28 +131,25 @@ func (c *connection) clientHandshake(dialAddress string, config *ClientConfig) e
 	c.transport = newClientTransport(
 		newTransport(c.sshConn.conn, config.Rand, true /* is client */),
 		c.clientVersion, c.serverVersion, config, dialAddress, c.sshConn.RemoteAddr())
-	if err := c.transport.requestKeyChange(); err != nil {
+	if err := c.transport.waitSession(); err != nil {
 		return err
 	}
 
-	if packet, err := c.transport.readPacket(); err != nil {
-		return err
-	} else if packet[0] != msgNewKeys {
-		return unexpectedMessageError(msgNewKeys, packet[0])
-	}
-
-	// We just did the key change, so the session ID is established.
 	c.sessionID = c.transport.getSessionID()
-
+	c.algorithms = c.transport.getAlgorithms()
 	return c.clientAuthenticate(config)
 }
 
-// verifyHostKeySignature verifies the host key obtained in the key
-// exchange.
-func verifyHostKeySignature(hostKey PublicKey, result *kexResult) error {
+// verifyHostKeySignature verifies the host key obtained in the key exchange.
+// algo is the negotiated algorithm, and may be a certificate type.
+func verifyHostKeySignature(hostKey PublicKey, algo string, result *kexResult) error {
 	sig, rest, ok := parseSignatureBody(result.Signature)
 	if len(rest) > 0 || !ok {
 		return errors.New("ssh: signature parse error")
+	}
+
+	if a := underlyingAlgo(algo); sig.Format != a {
+		return fmt.Errorf("ssh: invalid signature algorithm %q, expected %q", sig.Format, a)
 	}
 
 	return hostKey.Verify(result.H, sig)
@@ -169,7 +201,7 @@ func (c *Client) handleChannelOpens(in <-chan NewChannel) {
 // to incoming channels and requests, use net.Dial with NewClientConn
 // instead.
 func Dial(network, addr string, config *ClientConfig) (*Client, error) {
-	conn, err := net.Dial(network, addr)
+	conn, err := net.DialTimeout(network, addr, config.Timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -179,6 +211,70 @@ func Dial(network, addr string, config *ClientConfig) (*Client, error) {
 	}
 	return NewClient(c, chans, reqs), nil
 }
+
+// HostKeyCallback is the function type used for verifying server
+// keys.  A HostKeyCallback must return nil if the host key is OK, or
+// an error to reject it. It receives the hostname as passed to Dial
+// or NewClientConn. The remote address is the RemoteAddr of the
+// net.Conn underlying the SSH connection.
+type HostKeyCallback func(hostname string, remote net.Addr, key PublicKey) error
+
+// BannerCallback is the function type used for treat the banner sent by
+// the server. A BannerCallback receives the message sent by the remote server.
+type BannerCallback func(message string) error
+
+// ClientAuthContext contains information about the current state of the
+// authentication process, passed to [ClientAuthCallback].
+type ClientAuthContext struct {
+	// Metadata contains the connection metadata.
+	Metadata ConnMetadata
+
+	// Algorithms contains the negotiated algorithms.
+	Algorithms NegotiatedAlgorithms
+
+	// AllowedMethods lists the authentication methods currently accepted
+	// by the server. These are the protocol-level names defined in RFC 4252
+	// such as "publickey", "password".
+	AllowedMethods []string
+
+	// PartialSuccessMethods lists the authentication methods that have already
+	// succeeded, indicating a multi-step authentication flow. This list
+	// represents the exact sequence of partial successes and may contain
+	// duplicates if the same method succeeded multiple times.
+	PartialSuccessMethods []string
+
+	// TriedMethods lists the methods that have already been attempted and
+	// failed during this session. This list represents the exact sequence of
+	// failures and may contain duplicates. This allows the callback to also
+	// track the number of failed attempts for a specific method.
+	TriedMethods []string
+}
+
+// ClientAuthCallback is a hook invoked before each authentication attempt. It
+// allows the client to dynamically select an authentication method based on the
+// current context, server capabilities, or previous failures.
+//
+// The callback is invoked after the initial "none" authentication method, once
+// the server's supported authentication methods are known.
+//
+// Return values:
+//   - (AuthMethod, nil): The client will attempt this specific method next.
+//     The returned method does NOT need to be present in [ClientConfig.Auth].
+//     This allows for dynamic authentication strategies (e.g., prompting
+//     for a password only if public key auth fails). Callers should inspect
+//     [ClientAuthContext.TriedMethods] to avoid repeatedly returning the
+//     same failing method.
+//   - (nil, nil): The client selects from [ClientConfig.Auth] the first
+//     instance of a method that has not been tried yet, or aborts if none
+//     are left. If authentication is not successful, the callback is invoked
+//     again before the following attempt.
+//   - (nil, error): The authentication process is aborted immediately,
+//     causing the ongoing SSH handshake to fail with the provided error.
+//
+// To bound resource use, the client caps the total number of authentication
+// attempts (failures and partial successes combined) at 64. If the cap is
+// exceeded the handshake aborts with an error.
+type ClientAuthCallback func(ctx *ClientAuthContext) (AuthMethod, error)
 
 // A ClientConfig structure is used to configure a Client. It must not be
 // modified after having been passed to an SSH function.
@@ -193,21 +289,80 @@ type ClientConfig struct {
 	// Auth contains possible authentication methods to use with the
 	// server. Only the first instance of a particular RFC 4252 method will
 	// be used during authentication.
+	//
+	// If AuthCallback is set, these AuthMethod are only used if the
+	// callback returns nil.
 	Auth []AuthMethod
 
-	// HostKeyCallback, if not nil, is called during the cryptographic
-	// handshake to validate the server's host key. A nil HostKeyCallback
-	// implies that all host keys are accepted.
-	HostKeyCallback func(hostname string, remote net.Addr, key PublicKey) error
+	// HostKeyCallback is called during the cryptographic
+	// handshake to validate the server's host key. The client
+	// configuration must supply this callback for the connection
+	// to succeed. The functions InsecureIgnoreHostKey or
+	// FixedHostKey can be used for simplistic host key checks.
+	HostKeyCallback HostKeyCallback
+
+	// BannerCallback is called during the SSH dance to display a custom
+	// server's message. The client configuration can supply this callback to
+	// handle it as wished. The function BannerDisplayStderr can be used for
+	// simplistic display on Stderr.
+	BannerCallback BannerCallback
 
 	// ClientVersion contains the version identification string that will
 	// be used for the connection. If empty, a reasonable default is used.
 	ClientVersion string
 
-	// HostKeyAlgorithms lists the key types that the client will
-	// accept from the server as host key, in order of
+	// HostKeyAlgorithms lists the public key algorithms that the client will
+	// accept from the server for host key authentication, in order of
 	// preference. If empty, a reasonable default is used. Any
-	// string returned from PublicKey.Type method may be used, or
-	// any of the CertAlgoXxxx and KeyAlgoXxxx constants.
+	// string returned from a PublicKey.Type method may be used, or
+	// any of the CertAlgo and KeyAlgo constants.
 	HostKeyAlgorithms []string
+
+	// Timeout is the maximum amount of time for the TCP connection to establish.
+	//
+	// A Timeout of zero means no timeout.
+	Timeout time.Duration
+
+	// AuthCallback, if non-nil, is invoked before each authentication attempt.
+	AuthCallback ClientAuthCallback
+}
+
+// InsecureIgnoreHostKey returns a function that can be used for
+// ClientConfig.HostKeyCallback to accept any host key. It should
+// not be used for production code.
+func InsecureIgnoreHostKey() HostKeyCallback {
+	return func(hostname string, remote net.Addr, key PublicKey) error {
+		return nil
+	}
+}
+
+type fixedHostKey struct {
+	key PublicKey
+}
+
+func (f *fixedHostKey) check(hostname string, remote net.Addr, key PublicKey) error {
+	if f.key == nil {
+		return fmt.Errorf("ssh: required host key was nil")
+	}
+	if !bytes.Equal(key.Marshal(), f.key.Marshal()) {
+		return fmt.Errorf("ssh: host key mismatch")
+	}
+	return nil
+}
+
+// FixedHostKey returns a function for use in
+// ClientConfig.HostKeyCallback to accept only a specific host key.
+func FixedHostKey(key PublicKey) HostKeyCallback {
+	hk := &fixedHostKey{key}
+	return hk.check
+}
+
+// BannerDisplayStderr returns a function that can be used for
+// ClientConfig.BannerCallback to display banners on os.Stderr.
+func BannerDisplayStderr() BannerCallback {
+	return func(banner string) error {
+		_, err := os.Stderr.WriteString(banner)
+
+		return err
+	}
 }

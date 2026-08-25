@@ -28,3 +28,14 @@ func TestPacketErrorHandler(t *testing.T) {
 		t.Errorf("expected %s, but got %s", expectedPrettyMessage, actualPrettyMessage)
 	}
 }
+
+func TestPacketCreateIsDisabled(t *testing.T) {
+	packetHandler := &PacketHandler{}
+	err := packetHandler.HandleCreate(nil, "")
+	if err == nil {
+		t.Fatal("expected retired Packet provider to reject new machine creation")
+	}
+	if actual, expected := err.Error(), "Packet/Equinix Metal is retired; new machine creation is disabled"; actual != expected {
+		t.Fatalf("expected %q, got %q", expected, actual)
+	}
+}

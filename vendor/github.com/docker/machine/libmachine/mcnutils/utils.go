@@ -5,11 +5,24 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	math_rand "math/rand"
 	"os"
 	"runtime"
 	"strconv"
 	"time"
 )
+
+type MultiError struct {
+	Errs []error
+}
+
+func (e MultiError) Error() string {
+	aggregate := ""
+	for _, err := range e.Errs {
+		aggregate += err.Error() + "\n"
+	}
+	return aggregate
+}
 
 // GetHomeDir returns the home directory
 // TODO: Having this here just strikes me as dangerous, but some of the drivers
@@ -63,14 +76,10 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 
-	if err := os.Chmod(dst, fi.Mode()); err != nil {
-		return err
-	}
-
-	return nil
+	return os.Chmod(dst, fi.Mode())
 }
 
-func WaitForSpecificOrError(f func() (bool, error), maxAttempts int, waitInterval time.Duration) error {
+func WaitForSpecificOrError(f func() (bool, error), maxAttempts int, waitInterval time.Duration, devInterval ...time.Duration) error {
 	for i := 0; i < maxAttempts; i++ {
 		stop, err := f()
 		if err != nil {
@@ -80,18 +89,21 @@ func WaitForSpecificOrError(f func() (bool, error), maxAttempts int, waitInterva
 			return nil
 		}
 		time.Sleep(waitInterval)
+		for _, deviation := range devInterval {
+			time.Sleep(time.Duration(math_rand.Int63n(int64(deviation))))
+		}
 	}
 	return fmt.Errorf("Maximum number of retries (%d) exceeded", maxAttempts)
 }
 
-func WaitForSpecific(f func() bool, maxAttempts int, waitInterval time.Duration) error {
+func WaitForSpecific(f func() bool, maxAttempts int, waitInterval time.Duration, devInterval ...time.Duration) error {
 	return WaitForSpecificOrError(func() (bool, error) {
 		return f(), nil
-	}, maxAttempts, waitInterval)
+	}, maxAttempts, waitInterval, devInterval...)
 }
 
 func WaitFor(f func() bool) error {
-	return WaitForSpecific(f, 60, 3*time.Second)
+	return WaitForSpecific(f, 60, 3*time.Second, 9*time.Second)
 }
 
 // TruncateID returns a shorten id

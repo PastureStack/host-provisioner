@@ -109,7 +109,8 @@ func (f *DefaultRPCClientDriverFactory) Close() error {
 
 	for _, openedDriver := range f.openedDrivers {
 		if err := openedDriver.close(); err != nil {
-			log.Warnf("Error closing a plugin driver: %s", err)
+			// No need to display an error.
+			// There's nothing we can do and it doesn't add value to the user.
 		}
 	}
 	f.openedDrivers = []*RPCClientDriver{}
@@ -156,7 +157,7 @@ func (f *DefaultRPCClientDriverFactory) NewRPCClientDriver(driverName string, ra
 	if err := c.Client.Call(GetVersionMethod, struct{}{}, &serverVersion); err != nil {
 		// this is the first call we make to the server. We try to play nice with old pre 0.5.1 client,
 		// by gracefully trying old RPCServiceName, we do this only once, and keep the result for future calls.
-		log.Debugf(err.Error())
+		log.Debug(err.Error())
 		log.Debugf("Client (%s) with %s does not work, re-attempting with %s", c.Client.MachineName, RPCServiceNameV1, RPCServiceNameV0)
 		c.Client.switchToV0()
 		if err := c.Client.Call(GetVersionMethod, struct{}{}, &serverVersion); err != nil {
@@ -176,7 +177,10 @@ func (f *DefaultRPCClientDriverFactory) NewRPCClientDriver(driverName string, ra
 				return
 			case <-time.After(heartbeatInterval):
 				if err := c.Client.Call(HeartbeatMethod, struct{}{}, nil); err != nil {
-					log.Warnf("Error attempting heartbeat call to plugin server: %s", err)
+					log.Warnf("Wrapper Docker Machine process exiting due to closed plugin server (%s)", err)
+					if err := c.close(); err != nil {
+						log.Warn(err)
+					}
 				}
 			}
 		}
@@ -209,18 +213,14 @@ func (c *RPCClientDriver) close() error {
 	log.Debug("Making call to close driver server")
 
 	if err := c.Client.Call(CloseMethod, struct{}{}, nil); err != nil {
-		return err
+		log.Debugf("Failed to make call to close driver server: %s", err)
+	} else {
+		log.Debug("Successfully made call to close driver server")
 	}
-
-	log.Debug("Successfully made call to close driver server")
 
 	log.Debug("Making call to close connection to plugin binary")
 
-	if err := c.plugin.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.plugin.Close()
 }
 
 // Helper method to make requests which take no arguments and return simply a

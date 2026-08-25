@@ -32,18 +32,21 @@ type chanList struct {
 	offset uint32
 }
 
-// Assigns a channel ID to the given channel.
-func (c *chanList) add(ch *channel) uint32 {
+// add stores the given channel and assigns its localId while holding the
+// lock, so that getChan can never return a channel whose localId is not yet
+// initialized.
+func (c *chanList) add(ch *channel) {
 	c.Lock()
 	defer c.Unlock()
 	for i := range c.chans {
 		if c.chans[i] == nil {
 			c.chans[i] = ch
-			return uint32(i) + c.offset
+			ch.localId = uint32(i) + c.offset
+			return
 		}
 	}
 	c.chans = append(c.chans, ch)
-	return uint32(len(c.chans)-1) + c.offset
+	ch.localId = uint32(len(c.chans)-1) + c.offset
 }
 
 // getChan returns the channel for the given ID.
@@ -91,9 +94,10 @@ type mux struct {
 
 	incomingChannels chan NewChannel
 
-	globalSentMu     sync.Mutex
-	globalResponses  chan interface{}
-	incomingRequests chan *Request
+	globalSentMu      sync.Mutex
+	globalSentPending atomic.Bool
+	globalResponses   chan interface{}
+	incomingRequests  chan *Request
 
 	errCond *sync.Cond
 	err     error
@@ -116,9 +120,9 @@ func (m *mux) Wait() error {
 func newMux(p packetConn) *mux {
 	m := &mux{
 		conn:             p,
-		incomingChannels: make(chan NewChannel, 16),
+		incomingChannels: make(chan NewChannel, chanSize),
 		globalResponses:  make(chan interface{}, 1),
-		incomingRequests: make(chan *Request, 16),
+		incomingRequests: make(chan *Request, chanSize),
 		errCond:          newCond(),
 	}
 	if debugMux {
@@ -131,6 +135,9 @@ func newMux(p packetConn) *mux {
 
 func (m *mux) sendMessage(msg interface{}) error {
 	p := Marshal(msg)
+	if debugMux {
+		log.Printf("send global(%d): %#v", m.chanList.offset, msg)
+	}
 	return m.conn.writePacket(p)
 }
 
@@ -138,6 +145,27 @@ func (m *mux) SendRequest(name string, wantReply bool, payload []byte) (bool, []
 	if wantReply {
 		m.globalSentMu.Lock()
 		defer m.globalSentMu.Unlock()
+
+		// Open the gate so that responses arriving while this request is in
+		// flight are allowed to reach globalResponses. Any response arriving
+		// while no request is pending is dropped by handleGlobalPacket.
+		m.globalSentPending.Store(true)
+		defer m.globalSentPending.Store(false)
+
+		// Drain any spurious responses that may have been buffered. This prevents
+		// a previously buffered unexpected response from being consumed instead
+		// of the actual response for this request.
+	drain:
+		for {
+			select {
+			case _, ok := <-m.globalResponses:
+				if !ok {
+					break drain
+				}
+			default:
+				break drain
+			}
+		}
 	}
 
 	if err := m.sendMessage(globalRequestMsg{
@@ -173,18 +201,6 @@ func (m *mux) ackRequest(ok bool, data []byte) error {
 		return m.sendMessage(globalRequestSuccessMsg{Data: data})
 	}
 	return m.sendMessage(globalRequestFailureMsg{Data: data})
-}
-
-// TODO(hanwen): Disconnect is a transport layer message. We should
-// probably send and receive Disconnect somewhere in the transport
-// code.
-
-// Disconnect sends a disconnect message.
-func (m *mux) Disconnect(reason uint32, message string) error {
-	return m.sendMessage(disconnectMsg{
-		Reason:  reason,
-		Message: message,
-	})
 }
 
 func (m *mux) Close() error {
@@ -236,15 +252,16 @@ func (m *mux) onePacket() error {
 	}
 
 	switch packet[0] {
-	case msgNewKeys:
-		// Ignore notification of key change.
-		return nil
-	case msgDisconnect:
-		return m.handleDisconnect(packet)
 	case msgChannelOpen:
 		return m.handleChannelOpen(packet)
 	case msgGlobalRequest, msgRequestSuccess, msgRequestFailure:
 		return m.handleGlobalPacket(packet)
+	case msgPing:
+		var msg pingMsg
+		if err := Unmarshal(packet, &msg); err != nil {
+			return fmt.Errorf("failed to unmarshal ping@openssh.com message: %w", err)
+		}
+		return m.sendMessage(pongMsg(msg))
 	}
 
 	// assume a channel packet.
@@ -254,22 +271,10 @@ func (m *mux) onePacket() error {
 	id := binary.BigEndian.Uint32(packet[1:])
 	ch := m.chanList.getChan(id)
 	if ch == nil {
-		return fmt.Errorf("ssh: invalid channel %d", id)
+		return m.handleUnknownChannelPacket(id, packet)
 	}
 
 	return ch.handlePacket(packet)
-}
-
-func (m *mux) handleDisconnect(packet []byte) error {
-	var d disconnectMsg
-	if err := Unmarshal(packet, &d); err != nil {
-		return err
-	}
-
-	if debugMux {
-		log.Printf("caught disconnect: %v", d)
-	}
-	return &d
 }
 
 func (m *mux) handleGlobalPacket(packet []byte) error {
@@ -287,7 +292,16 @@ func (m *mux) handleGlobalPacket(packet []byte) error {
 			mux:       m,
 		}
 	case *globalRequestSuccessMsg, *globalRequestFailureMsg:
-		m.globalResponses <- msg
+		// Drop responses that arrive when no SendRequest is waiting, to
+		// prevent a malicious peer from staging responses for a future
+		// caller.
+		if !m.globalSentPending.Load() {
+			return nil
+		}
+		select {
+		case m.globalResponses <- msg:
+		default:
+		}
 	default:
 		panic(fmt.Sprintf("not a global message %#v", msg))
 	}
@@ -304,7 +318,7 @@ func (m *mux) handleChannelOpen(packet []byte) error {
 
 	if msg.MaxPacketSize < minPacketLength || msg.MaxPacketSize > 1<<31 {
 		failMsg := channelOpenFailureMsg{
-			PeersId:  msg.PeersId,
+			PeersID:  msg.PeersID,
 			Reason:   ConnectionFailed,
 			Message:  "invalid request",
 			Language: "en_US.UTF-8",
@@ -313,7 +327,7 @@ func (m *mux) handleChannelOpen(packet []byte) error {
 	}
 
 	c := m.newChannel(msg.ChanType, channelInbound, msg.TypeSpecificData)
-	c.remoteId = msg.PeersId
+	c.remoteId = msg.PeersID
 	c.maxRemotePayload = msg.MaxPacketSize
 	c.remoteWin.add(msg.PeersWindow)
 	m.incomingChannels <- c
@@ -332,14 +346,12 @@ func (m *mux) OpenChannel(chanType string, extra []byte) (Channel, <-chan *Reque
 func (m *mux) openChannel(chanType string, extra []byte) (*channel, error) {
 	ch := m.newChannel(chanType, channelOutbound, extra)
 
-	ch.maxIncomingPayload = channelMaxPacket
-
 	open := channelOpenMsg{
 		ChanType:         chanType,
 		PeersWindow:      ch.myWindow,
 		MaxPacketSize:    ch.maxIncomingPayload,
 		TypeSpecificData: extra,
-		PeersId:          ch.localId,
+		PeersID:          ch.localId,
 	}
 	if err := m.sendMessage(open); err != nil {
 		return nil, err
@@ -352,5 +364,26 @@ func (m *mux) openChannel(chanType string, extra []byte) (*channel, error) {
 		return nil, &OpenChannelError{msg.Reason, msg.Message}
 	default:
 		return nil, fmt.Errorf("ssh: unexpected packet in response to channel open: %T", msg)
+	}
+}
+
+func (m *mux) handleUnknownChannelPacket(id uint32, packet []byte) error {
+	msg, err := decode(packet)
+	if err != nil {
+		return err
+	}
+
+	switch msg := msg.(type) {
+	// RFC 4254 section 5.4 says unrecognized channel requests should
+	// receive a failure response.
+	case *channelRequestMsg:
+		if msg.WantReply {
+			return m.sendMessage(channelRequestFailureMsg{
+				PeersID: msg.PeersID,
+			})
+		}
+		return nil
+	default:
+		return fmt.Errorf("ssh: invalid channel %d", id)
 	}
 }
