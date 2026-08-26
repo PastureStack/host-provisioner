@@ -27,6 +27,20 @@ if grep -R -n -E 'GO111MODULE=off|GO15VENDOREXPERIMENT' Dockerfile.dapper .githu
 fi
 go list -mod=vendor -deps ./... >/dev/null
 
+crypto_version=$(go list -mod=vendor -m -f '{{.Version}}' golang.org/x/crypto)
+grep -F -- "\"@id\": \"pkg:golang/golang.org/x/crypto@${crypto_version}\"" security/openvex.json >/dev/null || {
+  echo 'OpenVEX x/crypto identity does not match the resolved module.' >&2
+  exit 1
+}
+if go list -mod=vendor -deps ./... | grep -F 'golang.org/x/crypto/openpgp'; then
+  echo 'Vulnerable openpgp package is reachable.' >&2
+  exit 1
+fi
+if test -d vendor/golang.org/x/crypto/openpgp; then
+  echo 'Vulnerable openpgp package is present in the vendored tree.' >&2
+  exit 1
+fi
+
 echo Running: go vet
 go vet ./...
 echo Checking: gofmt
