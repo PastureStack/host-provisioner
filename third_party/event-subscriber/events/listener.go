@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -68,8 +68,10 @@ func NewEventRouter(name string, priority int, apiURL string, accessKey string, 
 		}
 	}
 
-	// TODO Get subscribe collection URL from API instead of hard coding
-	subscribeURL := strings.Replace(apiURL+"/subscribe", "http", "ws", -1)
+	subscribeURL, err := buildEventSubscriptionURL(apiURL)
+	if err != nil {
+		return nil, err
+	}
 
 	return &EventRouter{
 		name:          name,
@@ -183,23 +185,28 @@ func (router *EventRouter) subscribeToEvents(subscribeURL string, accessKey stri
 	dialer := &websocket.Dialer{}
 	headers := http.Header{}
 	headers.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(accessKey+":"+secretKey)))
-	subscribeURL = subscribeURL + "?" + data.Encode()
-	ws, resp, err := dialer.Dial(subscribeURL, headers)
+	target, err := validateEventSubscriptionURL(router.apiURL, subscribeURL, data)
+	if err != nil {
+		return nil, err
+	}
+	if !eventSubscriptionURLPattern.MatchString(target) {
+		return nil, fmt.Errorf("event subscription URL failed validation")
+	}
+	ws, resp, err := dialer.Dial(target, headers)
 
 	if err != nil {
+		endpoint, _ := url.Parse(target)
 		log.WithFields(log.Fields{
-			"subscribeUrl": subscribeURL,
+			"subscribeEndpoint": endpoint.Scheme + "://" + endpoint.Host + endpoint.Path,
 		}).Errorf("Error subscribing to events: %s", err)
 		if resp != nil {
 			log.WithFields(log.Fields{
-				"status":          resp.Status,
-				"statusCode":      resp.StatusCode,
-				"responseHeaders": resp.Header,
+				"status":     resp.Status,
+				"statusCode": resp.StatusCode,
 			}).Error("Got error response")
 			if resp.Body != nil {
 				defer resp.Body.Close()
-				body, _ := ioutil.ReadAll(resp.Body)
-				log.Errorf("Error response: %s", body)
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 			}
 		}
 		return nil, err
