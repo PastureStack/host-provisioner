@@ -7,6 +7,7 @@ import (
 
 	"github.com/PastureStack/host-provisioner/dynamic"
 	"github.com/PastureStack/host-provisioner/handlers"
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/PastureStack/host-provisioner/logging"
 	"github.com/rancher/event-subscriber/events"
 )
@@ -21,7 +22,7 @@ var operatorLocale = "en-US"
 func main() {
 	processCmdLineFlags()
 
-	logger.WithField("gitcommit", GITCOMMIT).Info(operatorMessage(operatorLocale, "start"))
+	logger.WithField("gitcommit", logsafe.Value(GITCOMMIT)).Info(operatorMessage(operatorLocale, "start"))
 
 	apiURL := environmentValue("PLATFORM_URL", "CATTLE_URL")
 	accessKey := environmentValue("PLATFORM_ACCESS_KEY", "CATTLE_ACCESS_KEY")
@@ -85,10 +86,10 @@ func main() {
 		logger.Infof("Waiting for handler registration (2/2)")
 		<-ready
 		if err := dynamic.ReactivateOldDrivers(); err != nil {
-			logger.Fatalf("Error reactivating old drivers: %v", err)
+			logger.Fatalf("Error reactivating old drivers: %s", logsafe.Value(err))
 		}
 		if err := dynamic.DownloadAllDrivers(); err != nil {
-			logger.Fatalf("Error updating drivers: %v", err)
+			logger.Fatalf("Error updating drivers: %s", logsafe.Value(err))
 		}
 	}()
 
@@ -96,7 +97,7 @@ func main() {
 	if err == nil {
 		logger.Info(operatorMessage(operatorLocale, "exit"))
 	} else {
-		logger.Fatalf("Exiting host-provisioner: %v", err)
+		logger.Fatalf("Exiting host-provisioner: %s", logsafe.Value(err))
 	}
 }
 

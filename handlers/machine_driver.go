@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/PastureStack/host-provisioner/dynamic"
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/rancher/event-subscriber/events"
 	"github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
@@ -19,9 +20,9 @@ func RemoveDriver(event *events.Event, apiClient *client.RancherClient) error {
 
 func removeDriver(event *events.Event, apiClient *client.RancherClient, delete bool) error {
 	logger.WithFields(logrus.Fields{
-		"resourceId": event.ResourceID,
-		"eventId":    event.ID,
-		"name":       event.Name,
+		"resourceId": logsafe.Value(event.ResourceID),
+		"eventId":    logsafe.Value(event.ID),
+		"name":       logsafe.Value(event.Name),
 	}).Info("Event")
 
 	driverInfo, err := apiClient.MachineDriver.ById(event.ResourceID)
@@ -36,7 +37,7 @@ func removeDriver(event *events.Event, apiClient *client.RancherClient, delete b
 	if driverInfo.Checksum == "" || delete {
 		driver, err := getDriver(event.ResourceID, apiClient)
 		if err == nil {
-			logger.Infof("Removing driver %s", driverInfo.Name)
+			logger.Infof("Removing driver %s", logsafe.Value(driverInfo.Name))
 			driver.Remove()
 		}
 	}
@@ -51,9 +52,9 @@ func removeDriver(event *events.Event, apiClient *client.RancherClient, delete b
 
 func ErrorDriver(event *events.Event, apiClient *client.RancherClient) error {
 	logger.WithFields(logrus.Fields{
-		"resourceId": event.ResourceID,
-		"eventId":    event.ID,
-		"name":       event.Name,
+		"resourceId": logsafe.Value(event.ResourceID),
+		"eventId":    logsafe.Value(event.ID),
+		"name":       logsafe.Value(event.Name),
 	}).Info("Event")
 
 	driver, err := getDriver(event.ResourceID, apiClient)
@@ -70,9 +71,9 @@ func ErrorDriver(event *events.Event, apiClient *client.RancherClient) error {
 
 func ActivateDriver(event *events.Event, apiClient *client.RancherClient) error {
 	logger.WithFields(logrus.Fields{
-		"resourceId": event.ResourceID,
-		"eventId":    event.ID,
-		"name":       event.Name,
+		"resourceId": logsafe.Value(event.ResourceID),
+		"eventId":    logsafe.Value(event.ID),
+		"name":       logsafe.Value(event.Name),
 	}).Info("Event")
 
 	driver, err := activate(event.ResourceID, apiClient)
@@ -131,7 +132,7 @@ func activate(id string, apiClient *client.RancherClient) (*dynamic.Driver, erro
 	}
 
 	if err := driver.Install(); err != nil {
-		logger.Errorf("Failed to download/install driver %s: %v", driver.Name(), err)
+		logger.Errorf("Failed to download/install driver %s: %s", logsafe.Value(driver.Name()), logsafe.Value(err))
 		return nil, err
 	}
 

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
@@ -50,14 +51,14 @@ var removeCache = newExpiringSet(5 * time.Minute)
 
 func PurgeMachine(event *events.Event, apiClient *client.RancherClient) error {
 	logger.WithFields(logrus.Fields{
-		"resourceId": event.ResourceID,
-		"eventId":    event.ID,
+		"resourceId": logsafe.Value(event.ResourceID),
+		"eventId":    logsafe.Value(event.ID),
 	}).Info("Purging Machine")
 
 	if removeCache.contains(event.ResourceID, time.Now()) {
 		logger.WithFields(logrus.Fields{
-			"resourceId": event.ResourceID,
-			"eventId":    event.ID,
+			"resourceId": logsafe.Value(event.ResourceID),
+			"eventId":    logsafe.Value(event.ID),
 		}).Info("Machine already purged")
 		return publishReply(newReply(event), apiClient)
 	}
@@ -82,9 +83,9 @@ func PurgeMachine(event *events.Event, apiClient *client.RancherClient) error {
 	removeCache.add(event.ResourceID, time.Now())
 
 	logger.WithFields(logrus.Fields{
-		"resourceId":        event.ResourceID,
-		"machineExternalId": machine.ExternalId,
-		"machineDir":        machineDirs.jailDir,
+		"resourceId":        logsafe.Value(event.ResourceID),
+		"machineExternalId": logsafe.Value(machine.ExternalId),
+		"machineDir":        logsafe.Value(machineDirs.jailDir),
 	}).Info("Machine purged")
 
 	removeMachineDir(machineDirs.jailDir)

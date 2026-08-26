@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/PastureStack/host-provisioner/logging"
 )
 
@@ -142,12 +143,12 @@ func (d *Driver) getError() error {
 func (d *Driver) ClearError() {
 	cacheRoot, err := openDriverCacheRoot()
 	if err != nil {
-		logger.Errorf("Failed to open driver cache: %v", err)
+		logger.Errorf("Failed to open driver cache: %s", logsafe.Value(err))
 		return
 	}
 	defer cacheRoot.Close()
 	if err := removeIfPresent(cacheRoot, d.cacheKey()+".error"); err != nil {
-		logger.Errorf("Failed to clear driver error: %v", err)
+		logger.Errorf("Failed to clear driver error: %s", logsafe.Value(err))
 	}
 }
 
@@ -243,7 +244,7 @@ func (d *Driver) Install() error {
 	}
 	defer src.Close()
 
-	logger.Infof("Installing driver %v", driverName)
+	logger.Infof("Installing driver %s", logsafe.Value(driverName))
 	_, err = io.Copy(f, src)
 	if err != nil {
 		f.Close()
@@ -340,7 +341,7 @@ func (d *Driver) copyBinary(cacheRoot *os.Root, cacheKey, input string) (string,
 		return "", err
 	}
 
-	logger.Infof("Found driver %s", driverName)
+	logger.Infof("Found driver %s", logsafe.Value(driverName))
 	return driverName, nil
 }
 
@@ -489,7 +490,7 @@ func (d *Driver) download(dest io.Writer) error {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return fmt.Errorf("invalid driver download URL")
 	}
-	logger.Infof("Downloading machine driver from host %q", u.Hostname())
+	logger.Infof("Downloading machine driver from host %q", logsafe.Value(u.Hostname()))
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Get(u.String())
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/rancher/event-subscriber/events"
 	client "github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
@@ -367,7 +368,7 @@ func newReply(event *events.Event) *client.Publish {
 
 func cleanupResources(machineDir, name string) error {
 	logger.WithFields(logrus.Fields{
-		"machine name": name,
+		"machine name": logsafe.Value(name),
 	}).Info("starting cleanup...")
 	dExists, err := dirExists(machineDir)
 	if !dExists {
@@ -401,7 +402,7 @@ func cleanupResources(machineDir, name string) error {
 	removeMachineDir(machineDir)
 
 	logger.WithFields(logrus.Fields{
-		"machine name": name,
+		"machine name": logsafe.Value(name),
 	}).Info("cleanup successful")
 	return nil
 }
@@ -478,7 +479,7 @@ func createJail(machineDir string) error {
 		}
 	}
 
-	logrus.Debugf("Creating jail for %v", machineDir)
+	logrus.Debugf("Creating jail for %s", logsafe.Value(machineDir))
 	// This creates a nested dir, the first nest is the jail root, the 2nd makes everything
 	// appear normal for commands being called in the jail - Something like:
 	// "/var/lib/cattle/machine/machines/{ExternalId}/var/lib/cattle/machine/machines/{ExternalId}"
@@ -495,6 +496,6 @@ func createJail(machineDir string) error {
 	if err != nil {
 		return fmt.Errorf("error running the jail command: %s: %w", out, err)
 	}
-	logrus.Debugf("Output from create jail command %v", string(out))
+	logrus.WithField("outputBytes", len(out)).Debug("Create jail command completed")
 	return nil
 }

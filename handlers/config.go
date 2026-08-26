@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/PastureStack/host-provisioner/logging"
 	client "github.com/rancher/go-rancher/v2"
 	"github.com/sirupsen/logrus"
@@ -83,7 +84,7 @@ func restoreMachineDir(machine *client.Machine, baseDir string) error {
 			continue
 		}
 		filePath := filepath.Join(machineBaseDir, filename)
-		logger.Infof("Extracting %v", filePath)
+		logger.Infof("Extracting %s", logsafe.Value(filePath))
 
 		info := header.FileInfo()
 		mode := info.Mode()
@@ -121,7 +122,7 @@ func restoreMachineDir(machine *client.Machine, baseDir string) error {
 
 func createExtractedConfig(baseDir string, machine *client.Machine) (string, error) {
 	logger.WithFields(logrus.Fields{
-		"resourceId": machine.Id,
+		"resourceId": logsafe.Value(machine.Id),
 	}).Info("Creating and uploading extracted machine config")
 
 	// create the tar.gz file
@@ -244,22 +245,22 @@ func saveMachineConfig(machineDir string, machine *client.Machine, apiClient *cl
 func removeMachineDir(machineDir string) {
 	workDir, err := trustedWorkDir()
 	if err != nil {
-		logger.WithError(err).Warn("Refusing to remove unresolved machine directory")
+		logger.WithField("error", logsafe.Value(err)).Warn("Refusing to remove unresolved machine directory")
 		return
 	}
 	machinesDir := filepath.Join(workDir, "machines")
 	rel, err := filepath.Rel(machinesDir, machineDir)
 	if err != nil || !filepath.IsLocal(rel) || rel == "." {
-		logger.WithField("machineDir", machineDir).Warn("Refusing to remove machine directory outside storage root")
+		logger.WithField("machineDir", logsafe.Value(machineDir)).Warn("Refusing to remove machine directory outside storage root")
 		return
 	}
 	root, err := os.OpenRoot(machinesDir)
 	if err != nil {
-		logger.WithError(err).Warn("Refusing to remove machine directory without a trusted root")
+		logger.WithField("error", logsafe.Value(err)).Warn("Refusing to remove machine directory without a trusted root")
 		return
 	}
 	defer root.Close()
 	if err := root.RemoveAll(rel); err != nil {
-		logger.WithError(err).Warn("Unable to remove machine directory")
+		logger.WithField("error", logsafe.Value(err)).Warn("Unable to remove machine directory")
 	}
 }
