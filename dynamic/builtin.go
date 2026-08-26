@@ -3,6 +3,7 @@ package dynamic
 import (
 	"time"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/docker/machine/libmachine/drivers/plugin/localbinary"
 	"github.com/rancher/go-rancher/v2"
 )
@@ -53,14 +54,14 @@ Loop:
 			installed[driver.Name] = driver
 		}
 		if driver.State == "inactive" && driver.DefaultActive {
-			logger.Infof("Activating driver %s", driver.Name)
+			logger.Infof("Activating driver %s", logsafe.Value(driver.Name))
 			apiClient.MachineDriver.ActionActivate(&driver)
 		}
 	}
 
 	for _, driver := range localbinary.CoreDrivers {
 		if _, ok := installed[driver]; !ok && !ignoredDrivers[driver] {
-			logger.Infof("Installing builtin driver %s", driver)
+			logger.Infof("Installing builtin driver %s", logsafe.Value(driver))
 			apiClient.MachineDriver.Create(&client.MachineDriver{
 				Name:    driver,
 				Builtin: true,
@@ -71,7 +72,7 @@ Loop:
 	}
 
 	for _, driver := range installed {
-		logger.Infof("Deleting old builtin driver %s", driver.Name)
+		logger.Infof("Deleting old builtin driver %s", logsafe.Value(driver.Name))
 		apiClient.MachineDriver.Delete(&driver)
 	}
 

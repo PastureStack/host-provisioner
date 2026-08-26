@@ -1,6 +1,7 @@
 package dynamic
 
 import (
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/rancher/go-rancher/v2"
 )
 
@@ -37,7 +38,7 @@ func ReactivateOldDrivers() error {
 
 	for _, driver := range drivers.Data {
 		if driver.SchemaVersion != version {
-			logger.Infof("Updating driver %s from %s => %s", driver.Name, driver.SchemaVersion, version)
+			logger.Infof("Updating driver %s from %s => %s", logsafe.Value(driver.Name), logsafe.Value(driver.SchemaVersion), logsafe.Value(version))
 			_, err := apiClient.MachineDriver.ActionReactivate(&driver)
 			if err != nil {
 				return err
@@ -76,7 +77,7 @@ func DownloadAllDrivers() error {
 		}
 
 		if err != nil {
-			logger.Errorf("Failed to download/install driver %s: %v", driverInfo.Name, err)
+			logger.Errorf("Failed to download/install driver %s: %s", logsafe.Value(driverInfo.Name), logsafe.Value(err))
 			if _, err := apiClient.MachineDriver.ActionReactivate(&driverInfo); err != nil {
 				return err
 			}

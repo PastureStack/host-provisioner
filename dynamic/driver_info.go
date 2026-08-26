@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/docker/machine/libmachine/drivers/plugin/localbinary"
 	rpcdriver "github.com/docker/machine/libmachine/drivers/rpc"
 	cli "github.com/docker/machine/libmachine/mcnflag"
@@ -140,7 +141,7 @@ func RemoveSchemas(schemaName string, apiClient *client.RancherClient) error {
 			continue
 		}
 
-		logger.Debugf("Removing %s id: %s state: %s", schemaName, schema.Id, schema.State)
+		logger.Debugf("Removing %s id: %s state: %s", logsafe.Value(schemaName), logsafe.Value(schema.Id), logsafe.Value(schema.State))
 		if err := apiClient.DynamicSchema.Delete(&schema); err != nil {
 			return err
 		}
@@ -168,16 +169,16 @@ func uploadDynamicSchema(schemaName, definition, parent string, roles []string, 
 		Parent:     parent,
 		Roles:      roles,
 	})
-	logger.WithField("id", schema.Id).Infof("Creating schema %s, roles %v", schemaName, roles)
 	if err != nil {
 		return fmt.Errorf("Failed when uploading %s schema: %v", schemaName, err)
 	}
+	logger.WithField("id", logsafe.Value(schema.Id)).Infof("Creating schema %s, roles %s", logsafe.Value(schemaName), logsafe.Value(roles))
 
 	return waitSchema(*schema, apiClient)
 }
 
 func getCreateFlagsForDriver(driver string) ([]cli.Flag, error) {
-	logger.Debug("Starting binary ", driver)
+	logger.Debug("Starting binary ", logsafe.Value(driver))
 	p, err := localbinary.NewPlugin(driver)
 	if err != nil {
 		return nil, err
@@ -185,7 +186,7 @@ func getCreateFlagsForDriver(driver string) ([]cli.Flag, error) {
 	go func() {
 		err := p.Serve()
 		if err != nil {
-			logger.Debugf("Error serving plugin server for driver=%s, err=%v", driver, err)
+			logger.Debugf("Error serving plugin server for driver=%s, err=%s", logsafe.Value(driver), logsafe.Value(err))
 		}
 	}()
 	defer p.Close()
