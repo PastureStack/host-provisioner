@@ -168,8 +168,8 @@ func (router *EventRouter) run(wp WorkerPool, ready chan<- bool, eventSuffix str
 		err = json.Unmarshal(message, &event)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"message": string(message),
-			}).Warnf("Error parsing message: %s", err)
+				"messageBytes": len(message),
+			}).Warnf("Error parsing message: %s", safeLogValue(err))
 			continue
 		}
 		wp.HandleWork(event, handlers, router.apiClient)
@@ -197,11 +197,11 @@ func (router *EventRouter) subscribeToEvents(subscribeURL string, accessKey stri
 	if err != nil {
 		endpoint, _ := url.Parse(target)
 		log.WithFields(log.Fields{
-			"subscribeEndpoint": endpoint.Scheme + "://" + endpoint.Host + endpoint.Path,
-		}).Errorf("Error subscribing to events: %s", err)
+			"subscribeEndpoint": safeLogValue(endpoint.Scheme + "://" + endpoint.Host + endpoint.Path),
+		}).Errorf("Error subscribing to events: %s", safeLogValue(err))
 		if resp != nil {
 			log.WithFields(log.Fields{
-				"status":     resp.Status,
+				"status":     safeLogValue(resp.Status),
 				"statusCode": resp.StatusCode,
 			}).Error("Got error response")
 			if resp.Body != nil {
