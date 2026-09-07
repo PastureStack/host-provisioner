@@ -33,19 +33,19 @@ jobs:
           set -euo pipefail
           test -z "$(git status --porcelain)"
           git merge-base --is-ancestor 22d7baca609c18589f08225a97bf8c5e00109204 HEAD
-          grep -Fq 'VERSION_OVERRIDE: v0.39.5' .github/workflows/validate.yml
+          grep -Fq 'VERSION_OVERRIDE: v0.39.7' .github/workflows/validate.yml
 
       - name: Run complete tests, validation, and package
         env:
-          VERSION_OVERRIDE: v0.39.5
+          VERSION_OVERRIDE: v0.39.7
           SOURCE_DATE_EPOCH: '0'
         shell: bash
         run: |
           set -euo pipefail
           make ci
-          asset='dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz'
+          asset='dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz'
           test -s "$asset"
-          package_dir='host-provisioner-0.39.5-linux-amd64'
+          package_dir='host-provisioner-0.39.7-linux-amd64'
           tar -tJf "$asset" | grep -Fx "${package_dir}/host-provisioner"
           tar -tJf "$asset" | grep -Fx "${package_dir}/LICENSE"
           tar -tJf "$asset" | grep -Fx "${package_dir}/ORIGIN.md"
@@ -61,28 +61,28 @@ jobs:
           mkdir -p evidence extracted
           tar -xJf "$asset" -C extracted
           test -x "extracted/${package_dir}/host-provisioner"
-          test "$("extracted/${package_dir}/host-provisioner" -v)" = $'host-provisioner\t gitcommit=v0.39.5'
+          test "$("extracted/${package_dir}/host-provisioner" -v)" = $'host-provisioner\t gitcommit=v0.39.7'
           sha256sum "$asset" "extracted/${package_dir}/host-provisioner" > evidence/product-artifacts.sha256
 
       - name: Verify reproducible artifact
         env:
-          VERSION_OVERRIDE: v0.39.5
+          VERSION_OVERRIDE: v0.39.7
           SOURCE_DATE_EPOCH: '0'
         shell: bash
         run: |
           set -euo pipefail
-          cp dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz /tmp/first.tar.xz
+          cp dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz /tmp/first.tar.xz
           rm -rf bin dist
           make ci
-          cmp /tmp/first.tar.xz dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz
+          cmp /tmp/first.tar.xz dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz
           printf 'HOST_PROVISIONER_VALIDATION_OK source=%s version=%s\n' "$GITHUB_SHA" "$VERSION_OVERRIDE"
 
       - name: Retain reviewed release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: host-provisioner-0.39.5
+          name: host-provisioner-0.39.7
           path: |
-            dist/artifacts/host-provisioner-0.39.5-linux-amd64.tar.xz
+            dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz
             evidence/product-artifacts.sha256
           if-no-files-found: error
           retention-days: 30

@@ -1,8 +1,8 @@
 {
   "@context": "https://openvex.dev/ns/v0.2.0",
-  "@id": "https://github.com/PastureStack/host-provisioner/security/openvex/2026-08-26",
+  "@id": "https://github.com/PastureStack/host-provisioner/security/openvex/2026-09-07",
   "author": "PastureStack contributors",
-  "timestamp": "2026-08-26T15:32:00+08:00",
+  "timestamp": "2026-09-07T15:32:00+08:00",
   "version": 1,
   "statements": [
     {
@@ -11,7 +11,7 @@
       },
       "products": [
         {
-          "@id": "pkg:golang/golang.org/x/crypto@v0.55.0"
+          "@id": "pkg:golang/golang.org/x/crypto@v0.56.0"
         }
       ],
       "status": "not_affected",

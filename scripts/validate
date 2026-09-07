@@ -28,6 +28,7 @@ fi
 go list -mod=vendor -deps ./... >/dev/null
 
 crypto_version=$(go list -mod=vendor -m -f '{{.Version}}' golang.org/x/crypto)
+test "$crypto_version" = v0.56.0
 grep -F -- "\"@id\": \"pkg:golang/golang.org/x/crypto@${crypto_version}\"" security/openvex.json >/dev/null || {
   echo 'OpenVEX x/crypto identity does not match the resolved module.' >&2
   exit 1
