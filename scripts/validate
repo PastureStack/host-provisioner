@@ -5,8 +5,8 @@ cd $(dirname $0)/..
 
 echo Running validation
 
-grep -Fq 'ARG GO_VERSION=1.27.0' Dockerfile.dapper
-grep -Fq 'ARG GO_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685' Dockerfile.dapper
+grep -Fq 'ARG GO_VERSION=1.27.2' Dockerfile.dapper
+grep -Fq 'ARG GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5' Dockerfile.dapper
 grep -Fq 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969' .github/workflows/security-release-gate.yml
 if grep -E 'ARG DOCKER_VERSION=|download\.docker\.com/linux/static|tar xzf /tmp/docker\.tgz' Dockerfile.dapper; then
   echo 'Unused Docker CLI must not be bundled in the build container.' >&2
