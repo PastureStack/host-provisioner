@@ -23,7 +23,7 @@ jobs:
     env:
       DAPPER_IMAGE: pasturestack/host-provisioner-dapper:${{ github.sha }}
       TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
-      VERSION_OVERRIDE: v0.39.7
+      VERSION_OVERRIDE: v0.39.8
       SOURCE_DATE_EPOCH: '0'
     steps:
       - name: Check out candidate
@@ -47,21 +47,21 @@ jobs:
         run: |
           set -euo pipefail
           make DAPPER_IMAGE="$DAPPER_IMAGE" ci
-          test -s dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz
-          package_dir='host-provisioner-0.39.7-linux-amd64'
-          tar -tJf dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz | grep -Fx "${package_dir}/host-provisioner"
-          tar -tJf dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz | grep -Fx "${package_dir}/LICENSE"
-          tar -tJf dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz | grep -Fx "${package_dir}/ORIGIN.md"
+          test -s dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz
+          package_dir='host-provisioner-0.39.8-linux-amd64'
+          tar -tJf dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz | grep -Fx "${package_dir}/host-provisioner"
+          tar -tJf dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz | grep -Fx "${package_dir}/LICENSE"
+          tar -tJf dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz | grep -Fx "${package_dir}/ORIGIN.md"
           expected_legal=$(find vendor -type f \( \
             -name 'LICENSE' -o -name 'LICENSE.*' -o \
             -name 'NOTICE' -o -name 'NOTICE.*' -o \
             -name 'COPYING' -o -name 'COPYING.*' -o \
             -name 'AUTHORS' -o -name 'AUTHORS.*' \
           \) | wc -l)
-          actual_legal=$(tar -tJf dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")
+          actual_legal=$(tar -tJf dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz | grep -Ec "^${package_dir}/licenses/.+/(LICENSE|LICENSE\..*|NOTICE|NOTICE\..*|COPYING|COPYING\..*|AUTHORS|AUTHORS\..*)$")
           test "$expected_legal" -gt 0
           test "$actual_legal" -eq "$expected_legal"
-          sha256sum dist/artifacts/host-provisioner-0.39.7-linux-amd64.tar.xz bin/host-provisioner > evidence/product-artifacts.sha256
+          sha256sum dist/artifacts/host-provisioner-0.39.8-linux-amd64.tar.xz bin/host-provisioner > evidence/product-artifacts.sha256
           docker run --rm --entrypoint go -v "$PWD:/work:ro" "$DAPPER_IMAGE" \
             version -m /work/bin/host-provisioner > evidence/product-go-version.txt
           grep -F $'build\tCGO_ENABLED=0' evidence/product-go-version.txt >/dev/null
