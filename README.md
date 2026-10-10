@@ -28,6 +28,8 @@ Dependencies are locked by `go.mod` and `go.sum`, and builds use the checked-in 
 
 The build container does not receive the host Docker socket. For the reviewed Server release, build with `VERSION_OVERRIDE=v0.39.8` and `SOURCE_DATE_EPOCH=0`; packaging produces the deterministic Release asset `host-provisioner-0.39.8-linux-amd64.tar.xz`. The archive contains the executable, root license, origin record, and preserved bundled-dependency legal files. PastureStack Server downloads that asset from its versioned GitHub Release and verifies its new SHA-256 digest before installation. Users do not need to host a package mirror.
 
+The build-only Ubuntu snapshot is fixed at `20261010T200000Z`, with kernel headers `7.0.0-38.38` and OpenSSL `3.5.5-1ubuntu3.7`. CI builds and scans that container separately from the static product executable; available upstream fixes must pass the existing security gate rather than be classified as pending vendor fixes.
+
 See [COMPATIBILITY.md](COMPATIBILITY.md), [SECURITY.md](SECURITY.md), and [ORIGIN.md](ORIGIN.md).
 
 ## License and attribution
