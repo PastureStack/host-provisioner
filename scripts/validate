@@ -5,13 +5,24 @@ cd $(dirname $0)/..
 
 echo Running validation
 
-grep -Fq 'ARG GO_VERSION=1.27.2' Dockerfile.dapper
-grep -Fq 'ARG GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5' Dockerfile.dapper
+grep -Fq 'ARG GO_VERSION=1.27.3' Dockerfile.dapper
+grep -Fq 'ARG GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40' Dockerfile.dapper
+grep -Fq 'archive="$RUNNER_TEMP/go1.27.3.linux-amd64.tar.gz"' .github/workflows/codeql-verification.yml
+grep -Fq '65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40' .github/workflows/codeql-verification.yml
+grep -Fq "grep -F 'go1.27.3' evidence/product-go-version.txt" .github/workflows/security-release-gate.yml
 grep -Fq 'ARG UBUNTU_SNAPSHOT=20261010T200000Z' Dockerfile.dapper
 grep -Fq 'linux-libc-dev=7.0.0-38.38' Dockerfile.dapper
 for package in libssl3t64 openssl openssl-provider-legacy; do
   grep -Fq "${package}=3.5.5-1ubuntu3.7" Dockerfile.dapper
 done
+for checksum in \
+  2c418a61d7165d0cde01d9cb05ae025cc41fc75ef6d3f095996bd045ba0945dc \
+  8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3444d8e \
+  7c0b37592f83a629cc22f0c98effa176da9edbd6d77b3f38184a9d0ddc5e0266; do
+  grep -Fq "ADD --checksum=sha256:${checksum} https://security.ubuntu.com/ubuntu/pool/main/c/curl/" Dockerfile.dapper
+done
+grep -Fq 'dpkg -i /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb' Dockerfile.dapper
+grep -Fq 'test "$(dpkg-query -W -f='"'"'${Version}'"'"' "${package}")" = 8.18.0-1ubuntu2.8 || exit 1;' Dockerfile.dapper
 grep -Fq 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969' .github/workflows/security-release-gate.yml
 if grep -E 'ARG DOCKER_VERSION=|download\.docker\.com/linux/static|tar xzf /tmp/docker\.tgz' Dockerfile.dapper; then
   echo 'Unused Docker CLI must not be bundled in the build container.' >&2
