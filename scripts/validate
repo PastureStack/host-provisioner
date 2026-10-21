@@ -5,8 +5,11 @@ cd $(dirname $0)/..
 
 echo Running validation
 
-grep -Fq 'ARG GO_VERSION=1.27.2' Dockerfile.dapper
-grep -Fq 'ARG GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5' Dockerfile.dapper
+grep -Fq 'ARG GO_VERSION=1.27.3' Dockerfile.dapper
+grep -Fq 'ARG GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40' Dockerfile.dapper
+grep -Fq 'archive="$RUNNER_TEMP/go1.27.3.linux-amd64.tar.gz"' .github/workflows/codeql-verification.yml
+grep -Fq '65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40' .github/workflows/codeql-verification.yml
+grep -Fq "grep -F 'go1.27.3' evidence/product-go-version.txt" .github/workflows/security-release-gate.yml
 grep -Fq 'ARG UBUNTU_SNAPSHOT=20261010T200000Z' Dockerfile.dapper
 grep -Fq 'linux-libc-dev=7.0.0-38.38' Dockerfile.dapper
 for package in libssl3t64 openssl openssl-provider-legacy; do
