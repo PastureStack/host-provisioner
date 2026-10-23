@@ -104,6 +104,7 @@ jobs:
             test "$critical" -eq 0
             test "$high" -eq 0
           done
+          test "$(jq '[.Results[]?.Vulnerabilities[]?] | length' evidence/product-security.json)" -eq 0
           dapper_secrets=$(jq '[.Results[]?.Secrets[]?] | length' evidence/dapper-security.json)
           dapper_raw_critical=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' evidence/dapper-security.json)
           dapper_raw_high=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' evidence/dapper-security.json)
