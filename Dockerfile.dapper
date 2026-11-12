@@ -6,8 +6,8 @@ ARG GO_VERSION=1.27.4
 ARG GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 ARG UBUNTU_SNAPSHOT=20261010T200000Z
 
-ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
-    https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
+ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6 \
+    https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb \
     /tmp/ca-certificates.deb
 ADD --checksum=sha256:2c418a61d7165d0cde01d9cb05ae025cc41fc75ef6d3f095996bd045ba0945dc https://security.ubuntu.com/ubuntu/pool/main/c/curl/curl_8.18.0-1ubuntu2.8_amd64.deb /tmp/curl.deb
 ADD --checksum=sha256:8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3444d8e https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl3t64-gnutls.deb
@@ -22,7 +22,7 @@ ENV GOTELEMETRY=off
 ENV XDG_CONFIG_HOME=/tmp/go-config
 ENV GIT_CONFIG_GLOBAL=/tmp/gitconfig
 
-ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb /opt/pasturestack-ca-certificates.deb
+ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6 https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb /opt/pasturestack-ca-certificates.deb
 RUN set -eux; \
     mkdir -p /tmp/ca-bootstrap /etc/ssl/certs; \
     dpkg-deb --extract /tmp/ca-certificates.deb /tmp/ca-bootstrap; \
@@ -31,7 +31,7 @@ RUN set -eux; \
     rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-snapshot.sources; \
     printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\nAcquire::https::Verify-Peer "true";\nAcquire::https::Verify-Host "true";\nAcquire::AllowInsecureRepositories "false";\nAPT::Get::AllowUnauthenticated "false";\n' > /etc/apt/apt.conf.d/80pasturestack-snapshot; \
-    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update && \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update --error-on=any && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         build-essential \
@@ -55,7 +55,7 @@ RUN set -eux; \
     rm -f /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb && \
     dpkg -i /opt/pasturestack-ca-certificates.deb && \
     update-ca-certificates --fresh && \
-    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.1' && \
+    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.2' && \
     test ! -e /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt && \
     rm -f /opt/pasturestack-ca-certificates.deb && \
     rm -rf /var/lib/apt/lists/* && \
