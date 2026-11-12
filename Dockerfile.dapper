@@ -12,6 +12,7 @@ ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc2
 ADD --checksum=sha256:2c418a61d7165d0cde01d9cb05ae025cc41fc75ef6d3f095996bd045ba0945dc https://security.ubuntu.com/ubuntu/pool/main/c/curl/curl_8.18.0-1ubuntu2.8_amd64.deb /tmp/curl.deb
 ADD --checksum=sha256:8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3444d8e https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl3t64-gnutls.deb
 ADD --checksum=sha256:7c0b37592f83a629cc22f0c98effa176da9edbd6d77b3f38184a9d0ddc5e0266 https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4t64_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl4t64.deb
+ADD --checksum=sha256:3a3adc14e3332fc017b1d0e4e39655298a2a977d51db6e80de533ac60137b07f https://security.ubuntu.com/ubuntu/pool/main/l/linux/linux-libc-dev_7.0.0-43.43_amd64.deb /tmp/linux-libc-dev.deb
 ENV GOPATH=/go
 ENV GOROOT=/usr/local/go
 ENV PATH=/usr/local/go/bin:/go/bin:${PATH}
@@ -48,6 +49,12 @@ RUN set -eux; \
         test "$(dpkg-deb -f "/tmp/${package}.deb" Version)" = 8.18.0-1ubuntu2.8 || exit 1; \
         test "$(dpkg-deb -f "/tmp/${package}.deb" Architecture)" = amd64 || exit 1; \
     done && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Package)" = linux-libc-dev && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Version)" = 7.0.0-43.43 && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Architecture)" = amd64 && \
+    dpkg -i /tmp/linux-libc-dev.deb && \
+    test "$(dpkg-query -W -f='${Version}' linux-libc-dev)" = 7.0.0-43.43 && \
+    rm -f /tmp/linux-libc-dev.deb && \
     dpkg -i /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb && \
     for package in curl libcurl3t64-gnutls libcurl4t64; do \
         test "$(dpkg-query -W -f='${Version}' "${package}")" = 8.18.0-1ubuntu2.8 || exit 1; \
