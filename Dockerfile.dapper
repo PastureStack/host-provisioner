@@ -2,16 +2,20 @@
 FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG GO_VERSION=1.27.3
-ARG GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+ARG GO_VERSION=1.27.4
+ARG GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 ARG UBUNTU_SNAPSHOT=20261010T200000Z
 
-ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
-    https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb \
+ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6 \
+    https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb \
     /tmp/ca-certificates.deb
 ADD --checksum=sha256:2c418a61d7165d0cde01d9cb05ae025cc41fc75ef6d3f095996bd045ba0945dc https://security.ubuntu.com/ubuntu/pool/main/c/curl/curl_8.18.0-1ubuntu2.8_amd64.deb /tmp/curl.deb
 ADD --checksum=sha256:8db913e1fa5a694ca6ba7b828bd18c5204e6853ac07fe7ed9c6e1f94e3444d8e https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl3t64-gnutls_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl3t64-gnutls.deb
 ADD --checksum=sha256:7c0b37592f83a629cc22f0c98effa176da9edbd6d77b3f38184a9d0ddc5e0266 https://security.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4t64_8.18.0-1ubuntu2.8_amd64.deb /tmp/libcurl4t64.deb
+ADD --checksum=sha256:3a3adc14e3332fc017b1d0e4e39655298a2a977d51db6e80de533ac60137b07f https://security.ubuntu.com/ubuntu/pool/main/l/linux/linux-libc-dev_7.0.0-43.43_amd64.deb /tmp/linux-libc-dev.deb
+ADD --checksum=sha256:0de729b8fe0e1c67c04e8e8d5bd6e0420dbd47f75b93f0b71c8e740edc2d5ffc https://security.ubuntu.com/ubuntu/pool/main/a/apt/apt_3.2.1ubuntu0.1_amd64.deb /tmp/apt.deb
+ADD --checksum=sha256:94e5d41303265b66af0f8c70ade18bfb77260ad286edee6c8045faddef82b94c https://security.ubuntu.com/ubuntu/pool/main/a/apt/libapt-pkg7.0_3.2.1ubuntu0.1_amd64.deb /tmp/libapt-pkg7.0.deb
+ADD --checksum=sha256:bedeef1cf3268f90338c411cdb0a45b224d0660fd2240f310f380316c8244606 https://security.ubuntu.com/ubuntu/pool/main/b/brotli/libbrotli1_1.2.0-3ubuntu0.1_amd64.deb /tmp/libbrotli1.deb
 ENV GOPATH=/go
 ENV GOROOT=/usr/local/go
 ENV PATH=/usr/local/go/bin:/go/bin:${PATH}
@@ -22,7 +26,7 @@ ENV GOTELEMETRY=off
 ENV XDG_CONFIG_HOME=/tmp/go-config
 ENV GIT_CONFIG_GLOBAL=/tmp/gitconfig
 
-ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.1_all.deb /opt/pasturestack-ca-certificates.deb
+ADD --checksum=sha256:a7e3bf769aec16ba21ca39cba180d6d311dafcbae68346a05f137c5cc26c9ca6 https://security.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.26.04.2_all.deb /opt/pasturestack-ca-certificates.deb
 RUN set -eux; \
     mkdir -p /tmp/ca-bootstrap /etc/ssl/certs; \
     dpkg-deb --extract /tmp/ca-certificates.deb /tmp/ca-bootstrap; \
@@ -31,7 +35,11 @@ RUN set -eux; \
     rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; \
     printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: resolute resolute-updates resolute-backports resolute-security\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\nSnapshot: no\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list.d/pasturestack-snapshot.sources; \
     printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";\nAcquire::https::Verify-Peer "true";\nAcquire::https::Verify-Host "true";\nAcquire::AllowInsecureRepositories "false";\nAPT::Get::AllowUnauthenticated "false";\n' > /etc/apt/apt.conf.d/80pasturestack-snapshot; \
-    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update && \
+    dpkg -i /tmp/apt.deb /tmp/libapt-pkg7.0.deb; \
+    test "$(dpkg-query -W -f='${Version}' apt)" = 3.2.1ubuntu0.1; \
+    test "$(dpkg-query -W -f='${Version}' libapt-pkg7.0)" = 3.2.1ubuntu0.1; \
+    rm -f /tmp/apt.deb /tmp/libapt-pkg7.0.deb; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update --error-on=any && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         build-essential \
@@ -48,6 +56,15 @@ RUN set -eux; \
         test "$(dpkg-deb -f "/tmp/${package}.deb" Version)" = 8.18.0-1ubuntu2.8 || exit 1; \
         test "$(dpkg-deb -f "/tmp/${package}.deb" Architecture)" = amd64 || exit 1; \
     done && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Package)" = linux-libc-dev && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Version)" = 7.0.0-43.43 && \
+    test "$(dpkg-deb -f /tmp/linux-libc-dev.deb Architecture)" = amd64 && \
+    dpkg -i /tmp/libbrotli1.deb && \
+    test "$(dpkg-query -W -f='${Version}' libbrotli1)" = 1.2.0-3ubuntu0.1 && \
+    rm -f /tmp/libbrotli1.deb && \
+    dpkg -i /tmp/linux-libc-dev.deb && \
+    test "$(dpkg-query -W -f='${Version}' linux-libc-dev)" = 7.0.0-43.43 && \
+    rm -f /tmp/linux-libc-dev.deb && \
     dpkg -i /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb && \
     for package in curl libcurl3t64-gnutls libcurl4t64; do \
         test "$(dpkg-query -W -f='${Version}' "${package}")" = 8.18.0-1ubuntu2.8 || exit 1; \
@@ -55,7 +72,7 @@ RUN set -eux; \
     rm -f /tmp/curl.deb /tmp/libcurl3t64-gnutls.deb /tmp/libcurl4t64.deb && \
     dpkg -i /opt/pasturestack-ca-certificates.deb && \
     update-ca-certificates --fresh && \
-    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.1' && \
+    test "$(dpkg-query -W -f='${Version}' ca-certificates)" = '20260816ubuntu0.26.04.2' && \
     test ! -e /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt && \
     rm -f /opt/pasturestack-ca-certificates.deb && \
     rm -rf /var/lib/apt/lists/* && \

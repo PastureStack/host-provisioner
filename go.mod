@@ -2,7 +2,7 @@ module github.com/PastureStack/host-provisioner
 
 go 1.26.3
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/distribution/reference v0.6.0
