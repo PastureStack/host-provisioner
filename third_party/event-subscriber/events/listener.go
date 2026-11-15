@@ -154,7 +154,7 @@ func (router *EventRouter) run(wp WorkerPool, ready chan<- bool, eventSuffix str
 
 	if beforeReady != nil {
 		if err := beforeReady(router.apiClient); err != nil {
-			log.Warnf("Event subscription compatibility check failed: %s", safeLogValue(err))
+			log.Warn("Unable to retire a legacy event registration; current subscription remains connected")
 		}
 	}
 
