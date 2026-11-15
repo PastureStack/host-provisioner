@@ -14,6 +14,8 @@ This repository maintains the `v0.39.11` recipe based on the preserved upstream 
 
 Use `PLATFORM_URL`, `PLATFORM_ACCESS_KEY`, `PLATFORM_SECRET_KEY`, and `PASTURESTACK_HOME`. Existing `CATTLE_*` variables remain temporary compatibility aliases for established registration and event contracts. Set `PASTURESTACK_LOCALE=en-US` or `zh-TW` for operator lifecycle messages.
 
+When upgrading from the historical Go Machine Service, the current subscriber verifies the legacy registration's name, priority, and process mappings. A matching registration is deactivated through the platform API after the new subscription connects. The inactive registration remains available for rollback.
+
 ## Build and test
 
 From a Docker-capable Linux host:
@@ -26,7 +28,7 @@ make package
 
 Dependencies are locked by `go.mod` and `go.sum`, and builds use the checked-in `vendor/` tree without network access. The machine RPC layer follows the maintained GitLab Docker Machine fork at `v0.16.2-gitlab.52`; only the packages used by Host Provisioner are shipped. The Rancher 1.6 event and API clients are retained as explicit compatibility modules under `third_party/`, so their frozen protocol surface is reviewable without treating abandoned upstream repositories as live package sources.
 
-The build container does not receive the host Docker socket. For this recipe, build with `VERSION_OVERRIDE=v0.39.11` and `SOURCE_DATE_EPOCH=0`; packaging produces the deterministic asset `host-provisioner-0.39.11-linux-amd64.tar.xz`. Source changes alone are not publication proof: verify the official release assets and their SHA-256. Component publication and matching Server acceptance are separate evidence boundaries. The archive contains the executable, root license, origin record, and preserved bundled-dependency legal files. PastureStack Server downloads published assets from their versioned GitHub Release and verifies the new SHA-256 digest before installation. Users do not need to host a package mirror.
+The build container does not receive the host Docker socket. For this recipe, build with `VERSION_OVERRIDE=v0.39.12` and `SOURCE_DATE_EPOCH=0`; packaging produces the deterministic asset `host-provisioner-0.39.12-linux-amd64.tar.xz`. Source changes alone are not publication proof: verify the official release assets and their SHA-256. Component publication and matching Server acceptance are separate evidence boundaries. The archive contains the executable, root license, origin record, and preserved bundled-dependency legal files. PastureStack Server downloads published assets from their versioned GitHub Release and verifies the new SHA-256 digest before installation. Users do not need to host a package mirror.
 
 The build-only Ubuntu snapshot is fixed at `20261010T200000Z`, with kernel headers `7.0.0-38.38` and OpenSSL `3.5.5-1ubuntu3.7`. CI builds and scans that container separately from the static product executable; available upstream fixes must pass the existing security gate rather than be classified as pending vendor fixes.
 

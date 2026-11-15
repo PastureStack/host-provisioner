@@ -7,6 +7,7 @@ import (
 
 	"github.com/PastureStack/host-provisioner/dynamic"
 	"github.com/PastureStack/host-provisioner/handlers"
+	"github.com/PastureStack/host-provisioner/internal/handlerregistration"
 	"github.com/PastureStack/host-provisioner/internal/logsafe"
 	"github.com/PastureStack/host-provisioner/logging"
 	"github.com/rancher/event-subscriber/events"
@@ -45,7 +46,15 @@ func main() {
 		router, err := events.NewEventRouter("hostProvisioner-machine", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "machineDriver", 250, events.DefaultPingConfig)
 		if err == nil {
-			err = router.Start(ready)
+			err = router.StartWithReadyHook(ready, handlerregistration.Legacy{
+				Name:     "goMachineService-machine",
+				Priority: 2000,
+				OnError:  "machinedriver.error",
+				Processes: []string{
+					"machinedriver.activate", "machinedriver.deactivate", "machinedriver.error",
+					"machinedriver.reactivate", "machinedriver.remove", "machinedriver.update", "ping",
+				},
+			}.Deactivate)
 		}
 		done <- err
 	}()
@@ -61,7 +70,12 @@ func main() {
 		router, err := events.NewEventRouter("hostProvisioner", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "physicalhost", 250, events.DefaultPingConfig)
 		if err == nil {
-			err = router.Start(ready)
+			err = router.StartWithReadyHook(ready, handlerregistration.Legacy{
+				Name:      "goMachineService",
+				Priority:  2000,
+				OnError:   "physicalhost.error",
+				Processes: []string{"physicalhost.bootstrap", "physicalhost.create", "physicalhost.remove", "ping"},
+			}.Deactivate)
 		}
 		done <- err
 	}()
@@ -75,7 +89,12 @@ func main() {
 		router, err := events.NewEventRouter("hostProvisioner-agent", 2000, apiURL, accessKey, secretKey,
 			nil, eventHandlers, "agent", 5, events.DefaultPingConfig)
 		if err == nil {
-			err = router.Start(ready)
+			err = router.StartWithReadyHook(ready, handlerregistration.Legacy{
+				Name:      "goMachineService-agent",
+				Priority:  2000,
+				OnError:   "agent.error",
+				Processes: []string{"ping"},
+			}.Deactivate)
 		}
 		done <- err
 	}()
