@@ -7,6 +7,11 @@ import (
 
 type doneTranitioningFunc func() (bool, error)
 
+// WaitForTransition waits for a resource transition using the event subscriber's polling settings.
+func WaitForTransition(waitFunc func() (bool, error)) error {
+	return waitForTransition(waitFunc)
+}
+
 func waitForTransition(waitFunc doneTranitioningFunc) error {
 	timeoutAt := time.Now().Add(MaxWait)
 	ticker := time.NewTicker(time.Millisecond * 250)

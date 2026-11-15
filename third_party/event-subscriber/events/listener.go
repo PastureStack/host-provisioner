@@ -96,25 +96,34 @@ func NewEventRouter(name string, priority int, apiURL string, accessKey string, 
 // that are created outside of this router.
 
 func (router *EventRouter) Start(ready chan<- bool) error {
+	return router.start(ready, nil)
+}
+
+// StartWithReadyHook runs beforeReady after the new subscription connects and before it signals readiness.
+func (router *EventRouter) StartWithReadyHook(ready chan<- bool, beforeReady func(*client.RancherClient) error) error {
+	return router.start(ready, beforeReady)
+}
+
+func (router *EventRouter) start(ready chan<- bool, beforeReady func(*client.RancherClient) error) error {
 	err := router.createExternalHandler()
 	if err != nil {
 		return err
 	}
 	eventSuffix := ";handler=" + router.name
 	wp := SkippingWorkerPool(router.workerCount, resourceIDLocker)
-	return router.run(wp, ready, eventSuffix)
+	return router.run(wp, ready, eventSuffix, beforeReady)
 }
 
 func (router *EventRouter) StartWithoutCreate(ready chan<- bool) error {
 	wp := SkippingWorkerPool(router.workerCount, resourceIDLocker)
-	return router.run(wp, ready, "")
+	return router.run(wp, ready, "", nil)
 }
 
 func (router *EventRouter) RunWithWorkerPool(wp WorkerPool) error {
-	return router.run(wp, nil, "")
+	return router.run(wp, nil, "", nil)
 }
 
-func (router *EventRouter) run(wp WorkerPool, ready chan<- bool, eventSuffix string) (err error) {
+func (router *EventRouter) run(wp WorkerPool, ready chan<- bool, eventSuffix string, beforeReady func(*client.RancherClient) error) (err error) {
 
 	log.WithFields(log.Fields{
 		"workerCount": router.workerCount,
@@ -142,6 +151,12 @@ func (router *EventRouter) run(wp WorkerPool, ready chan<- bool, eventSuffix str
 	log.Info("Connection established")
 	router.eventStream = eventStream
 	defer router.Stop()
+
+	if beforeReady != nil {
+		if err := beforeReady(router.apiClient); err != nil {
+			log.Warnf("Event subscription compatibility check failed: %s", safeLogValue(err))
+		}
+	}
 
 	if ready != nil {
 		ready <- true
